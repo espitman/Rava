@@ -10,6 +10,8 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -19,6 +21,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.method.ScrollingMovementMethod;
+import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
@@ -28,6 +31,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -50,12 +54,16 @@ import java.text.DateFormat;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @SuppressLint({"SetTextI18n", "UnspecifiedRegisterReceiverFlag"})
 public class MainActivity extends Activity {
     private static final int RUN_PERMISSION_REQUEST = 41;
     private static final String ENABLE_EXTERNAL_APPS =
             "mkdir -p ~/.termux && (grep -q '^allow-external-apps=true$' ~/.termux/termux.properties 2>/dev/null || echo 'allow-external-apps=true' >> ~/.termux/termux.properties) && termux-reload-settings";
+    private static final Pattern MARKDOWN_IMAGE = Pattern.compile(
+            "!\\[([^\\]]*)\\]\\(((?:https?://|/v1/media/)[^\\s)]+)\\)");
 
     private TextView prerequisites;
     private TextView progress;
@@ -466,7 +474,11 @@ public class MainActivity extends Activity {
                 String answer = streamChatCompletion(body, answerBubble);
                 runOnUiThread(() -> {
                     stopTypingAnimation(answerBubble, typingAnimation);
-                    if (answer.isEmpty()) answerBubble.setText("(Empty response)");
+                    if (answer.isEmpty()) {
+                        answerBubble.setText("(Empty response)");
+                    } else {
+                        renderRichAnswer(answerBubble, answer);
+                    }
                     chatStatus.setText("Conversation active");
                     sendButton.setEnabled(true);
                     focusChatInput();
@@ -543,6 +555,72 @@ public class MainActivity extends Activity {
             connection.disconnect();
         }
         return answer.toString();
+    }
+
+    private void renderRichAnswer(TextView bubble, String answer) {
+        Matcher matcher = MARKDOWN_IMAGE.matcher(answer);
+        StringBuffer plainText = new StringBuffer();
+        List<String[]> images = new ArrayList<>();
+        while (matcher.find()) {
+            images.add(new String[]{matcher.group(2), matcher.group(1)});
+            matcher.appendReplacement(plainText, "");
+        }
+        matcher.appendTail(plainText);
+        String visibleText = plainText.toString()
+                .replaceAll("(?m)^_\\d+\\s*$", "")
+                .trim();
+        bubble.setText(visibleText);
+        bubble.setVisibility(visibleText.isEmpty() ? View.GONE : View.VISIBLE);
+        applyMessageDirection(bubble, visibleText);
+
+        LinearLayout group = (LinearLayout) bubble.getParent();
+        int imageWidth = Math.min(
+                (int) (getResources().getDisplayMetrics().widthPixels * 0.84f), dp(420));
+        for (String[] image : images) {
+            String source = image[0].startsWith("/")
+                    ? "http://127.0.0.1:8766" + image[0] : image[0];
+            ImageView imageView = new ImageView(this);
+            imageView.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            imageView.setContentDescription(image[1].isEmpty() ? "Response image" : image[1]);
+            imageView.setBackground(rounded(Color.rgb(240, 240, 240), 18));
+            imageView.setClipToOutline(true);
+            imageView.setOnClickListener(view -> startActivity(
+                    new Intent(Intent.ACTION_VIEW, Uri.parse(source))));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(imageWidth, dp(220));
+            params.topMargin = dp(8);
+            group.addView(imageView, params);
+            loadImage(imageView, source);
+        }
+    }
+
+    private void loadImage(ImageView imageView, String url) {
+        new Thread(() -> {
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) new URL(url).openConnection();
+                connection.setConnectTimeout(10000);
+                connection.setReadTimeout(20000);
+                connection.setRequestProperty("User-Agent", "Mozilla/5.0");
+                connection.setRequestProperty("Accept", "image/*");
+                connection.setRequestProperty("X-Rava-App-Id", "ir.rava.installer.chat");
+                Bitmap bitmap;
+                try (InputStream stream = connection.getInputStream()) {
+                    bitmap = BitmapFactory.decodeStream(stream);
+                }
+                if (bitmap == null) throw new IOException("Image data could not be decoded");
+                Bitmap loaded = bitmap;
+                runOnUiThread(() -> imageView.setImageBitmap(loaded));
+            } catch (Exception exception) {
+                Log.e("RavaImage", "Could not load " + url, exception);
+                runOnUiThread(() -> {
+                    imageView.setScaleType(ImageView.ScaleType.CENTER);
+                    imageView.setImageResource(android.R.drawable.ic_menu_report_image);
+                    imageView.setContentDescription("Tap to open image");
+                });
+            } finally {
+                if (connection != null) connection.disconnect();
+            }
+        }).start();
     }
 
     private Runnable startTypingAnimation(TextView bubble) {

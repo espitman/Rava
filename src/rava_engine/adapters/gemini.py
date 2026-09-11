@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import re
+import uuid
 from collections.abc import AsyncIterator, Sequence
+from pathlib import Path
 from typing import Any
 
 from ..errors import ModelSelectionFailed, ProviderUnavailable
+from ..media import MEDIA_DIR
 from ..provider import Provider
 from ..types import Message, ModelInfo, ProviderStatus
 
@@ -66,8 +70,20 @@ class GeminiWebProvider(Provider):
         # Forwarding those provisional deltas can expose a stray suffix instead
         # of the final answer, so publish only the completed candidate text.
         output = await session.send_message(prompt, temporary=self._temporary)
-        if output.text:
-            yield output.text
+        text = re.sub(r"(?m)^_\d+\s*$", "", output.text or "").strip()
+        images = []
+        for image in output.images:
+            alt = str(image.alt or image.title or "Image").replace("]", "")
+            try:
+                MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+                saved = await image.save(path=str(MEDIA_DIR), filename=uuid.uuid4().hex)
+                image_url = f"/v1/media/{Path(saved).name}"
+            except Exception:
+                continue
+            images.append(f"![{alt}]({image_url})")
+        content = "\n\n".join(part for part in [text, *images] if part)
+        if content:
+            yield content
 
     async def status(self) -> ProviderStatus:
         try:

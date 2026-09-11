@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from rava_engine.engine import Engine
 from rava_engine.errors import ProviderUnavailable
 from rava_engine.http_api import create_app
+from rava_engine.media import MEDIA_DIR
 from rava_engine.registry import ProviderRegistry
 
 from .test_engine import FakeProvider
@@ -22,6 +25,21 @@ async def test_http_models_are_openai_compatible(http_engine: Engine) -> None:
         assert response.status == 200
         payload = await response.json()
         assert payload["data"][0]["id"] == "fake/exact"
+
+
+async def test_http_serves_cached_media_to_identified_apps(http_engine: Engine) -> None:
+    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
+    path = MEDIA_DIR / f"test-{uuid.uuid4().hex}.png"
+    path.write_bytes(b"image-bytes")
+    try:
+        async with TestClient(TestServer(create_app(http_engine))) as client:
+            response = await client.get(
+                f"/v1/media/{path.name}", headers={"X-Rava-App-Id": "app.one"}
+            )
+            assert response.status == 200
+            assert await response.read() == b"image-bytes"
+    finally:
+        path.unlink(missing_ok=True)
 
 
 async def test_http_completion_returns_conversation_id(http_engine: Engine) -> None:

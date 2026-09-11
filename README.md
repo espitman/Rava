@@ -26,6 +26,7 @@ and health checks.
 - Separate Chromium profiles for ChatGPT and Gemini
 - Graphical Android setup companion
 - Built-in Android test chat with model selection and conversation continuation
+- Inline response images cached locally by the engine and rendered in Android chat
 - Automatic routing of ChatGPT conversations into a dedicated `Rava` project
 - Temporary Gemini conversations so Rava does not add entries to Gemini history
 - Tested on a physical ARM64 phone running Android 14 and Termux 0.119

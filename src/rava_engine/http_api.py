@@ -4,12 +4,14 @@ import asyncio
 import json
 import time
 import uuid
+from pathlib import Path
 from typing import Any
 
 from aiohttp import web
 
 from .engine import Engine
 from .errors import InvalidRequest, RavaError
+from .media import MEDIA_DIR
 from .types import Message
 
 ENGINE_KEY = web.AppKey("engine", Engine)
@@ -20,6 +22,7 @@ def create_app(engine: Engine) -> web.Application:
     app[ENGINE_KEY] = engine
     app.router.add_get("/health", _health)
     app.router.add_get("/v1/models", _models)
+    app.router.add_get("/v1/media/{name}", _media)
     app.router.add_post("/v1/conversations", _create_conversation)
     app.router.add_delete("/v1/conversations/{conversation_id}", _delete_conversation)
     app.router.add_post("/v1/requests/{request_id}/cancel", _cancel_request)
@@ -69,6 +72,20 @@ async def _models(request: web.Request) -> web.Response:
             ],
         }
     )
+
+
+async def _media(request: web.Request) -> web.StreamResponse:
+    try:
+        _app_id(request)
+        name = request.match_info["name"]
+        if name != Path(name).name:
+            raise InvalidRequest("Invalid media name")
+        path = MEDIA_DIR / name
+        if not path.is_file():
+            raise web.HTTPNotFound()
+        return web.FileResponse(path, headers={"Cache-Control": "private, max-age=3600"})
+    except RavaError as exc:
+        return _error(exc)
 
 
 async def _create_conversation(request: web.Request) -> web.Response:
