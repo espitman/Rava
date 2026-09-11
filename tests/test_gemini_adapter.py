@@ -15,9 +15,13 @@ class FakeOutput:
 class FakeGeminiSession:
     def __init__(self) -> None:
         self.prompt: str | None = None
+        self.temporary: bool | None = None
 
-    async def send_message_stream(self, prompt: str):  # type: ignore[no-untyped-def]
+    async def send_message_stream(  # type: ignore[no-untyped-def]
+        self, prompt: str, *, temporary: bool = False
+    ):
         self.prompt = prompt
+        self.temporary = temporary
         yield FakeOutput(text="RAVA", text_delta="RAVA")
         yield FakeOutput(text="RAVA_OK", text_delta="_OK")
 
@@ -33,3 +37,4 @@ async def test_gemini_provider_yields_only_new_stream_characters() -> None:
 
     assert chunks == ["RAVA", "_OK"]
     assert "Reply exactly" in (session.prompt or "")
+    assert session.temporary is True

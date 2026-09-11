@@ -156,24 +156,45 @@ async def _stream_response(
     )
     await response.prepare(request)
     first = True
-    async for chunk in chunks:
+    try:
+        async for chunk in chunks:
+            payload = {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "created": int(time.time()),
+                "model": model_id,
+                "conversation_id": conversation_id,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": chunk}
+                        if first
+                        else {"content": chunk},
+                        "finish_reason": None,
+                    }
+                ],
+            }
+            first = False
+            await response.write(f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode())
+    except Exception as exc:
+        message = str(exc) or type(exc).__name__
         payload = {
             "id": completion_id,
             "object": "chat.completion.chunk",
             "created": int(time.time()),
             "model": model_id,
             "conversation_id": conversation_id,
+            "error": {"message": message, "type": "provider_stream_error"},
             "choices": [
                 {
                     "index": 0,
-                    "delta": {"role": "assistant", "content": chunk}
+                    "delta": {"role": "assistant", "content": message}
                     if first
-                    else {"content": chunk},
-                    "finish_reason": None,
+                    else {"content": message},
+                    "finish_reason": "error",
                 }
             ],
         }
-        first = False
         await response.write(f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode())
     await response.write(b"data: [DONE]\n\n")
     return response

@@ -1,0 +1,49 @@
+--- a/src/chatgpt_web2api/api_server.py
++++ b/src/chatgpt_web2api/api_server.py
+@@ -83,6 +83,7 @@
+         self.app.router.add_post("/chat/completions", self._handle_chat)
+         self.app.router.add_get("/v1/models", self._handle_models)
+         self.app.router.add_get("/v1/projects", self._handle_projects)
++        self.app.router.add_post("/v1/projects", self._handle_create_project)
+         self.app.router.add_get("/health", self._handle_health)
+         self.app.router.add_get("/", self._handle_health)
+ 
+@@ -230,6 +231,38 @@
+             projects = []
+         return web.json_response({"object": "list", "data": projects})
+ 
++    async def _handle_create_project(self, request: web.Request) -> web.Response:
++        if err := self._check_auth(request):
++            return err
++        try:
++            body = await request.json()
++        except json.JSONDecodeError:
++            return web.json_response(
++                {"error": {"message": "Invalid JSON", "type": "invalid_request_error"}},
++                status=400,
++            )
++        name = str(body.get("name", "")).strip()
++        if not name:
++            return web.json_response(
++                {"error": {"message": "Project name is required", "type": "invalid_request_error"}},
++                status=400,
++            )
++        projects = await self._driver.get_projects()
++        for project in projects:
++            if str(project.get("name", "")).casefold() == name.casefold():
++                return web.json_response(project)
++        result = await self._driver.create_project(
++            name=name,
++            instructions=str(body.get("instructions", "")),
++            memory_scope=str(body.get("memory_scope", "project_v2")),
++        )
++        if result.get("error"):
++            return web.json_response(
++                {"error": {"message": str(result["error"]), "type": "project_creation_error"}},
++                status=502,
++            )
++        return web.json_response(result, status=201)
++
+     async def _handle_chat(self, request: web.Request) -> web.Response:
+         if err := self._check_auth(request):
+             return err

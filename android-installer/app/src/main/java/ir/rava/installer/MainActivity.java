@@ -467,6 +467,7 @@ public class MainActivity extends Activity {
                 });
             } catch (Exception exception) {
                 runOnUiThread(() -> {
+                    conversationId = null;
                     answerBubble.setText(exception.getMessage());
                     answerBubble.setTextColor(Color.rgb(176, 0, 32));
                     chatStatus.setText("Request failed");
@@ -512,9 +513,12 @@ public class MainActivity extends Activity {
                 if ("[DONE]".equals(data)) break;
                 JSONObject event = new JSONObject(data);
                 conversationId = event.optString("conversation_id", conversationId);
-                JSONObject delta = event.getJSONArray("choices").getJSONObject(0)
-                        .getJSONObject("delta");
+                JSONObject choice = event.getJSONArray("choices").getJSONObject(0);
+                JSONObject delta = choice.getJSONObject("delta");
                 String chunk = delta.optString("content", "");
+                if ("error".equals(choice.optString("finish_reason"))) {
+                    throw new IOException(chunk.isEmpty() ? "The provider stream failed." : chunk);
+                }
                 if (chunk.isEmpty()) continue;
                 answer.append(chunk);
                 String visibleText = answer.toString();

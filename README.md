@@ -26,11 +26,19 @@ and health checks.
 - Separate Chromium profiles for ChatGPT and Gemini
 - Graphical Android setup companion
 - Built-in Android test chat with model selection and conversation continuation
+- Automatic routing of ChatGPT conversations into a dedicated `Rava` project
+- Temporary Gemini conversations so Rava does not add entries to Gemini history
 - Tested on a physical ARM64 phone running Android 14 and Termux 0.119
 
 The physical-device test suite has verified model discovery, invalid-model
 rejection, normal completion, conversation continuation, and streaming for both
 providers. The exact models available depend on the signed-in accounts.
+
+Rava looks up or creates a project named `Rava` in ChatGPT and sends new
+ChatGPT conversations into it. Gemini currently has no equivalent project
+folders, so Rava uses Gemini's temporary-chat mode to keep those conversations
+out of Gemini history. Set `RAVA_CHATGPT_PROJECT` to an empty value to disable
+ChatGPT project routing, or `RAVA_GEMINI_TEMPORARY=false` to retain Gemini chats.
 
 ## Architecture
 

@@ -11,9 +11,16 @@ from ..types import Message, ModelInfo, ProviderStatus
 class GeminiWebProvider(Provider):
     name = "gemini"
 
-    def __init__(self, secure_1psid: str, secure_1psidts: str | None = None) -> None:
+    def __init__(
+        self,
+        secure_1psid: str,
+        secure_1psidts: str | None = None,
+        *,
+        temporary: bool = True,
+    ) -> None:
         self._secure_1psid = secure_1psid
         self._secure_1psidts = secure_1psidts
+        self._temporary = temporary
         self._client: Any = None
 
     async def _ensure_client(self) -> Any:
@@ -55,7 +62,7 @@ class GeminiWebProvider(Provider):
 
     async def send(self, session: Any, messages: Sequence[Message]) -> AsyncIterator[str]:
         prompt = _messages_to_prompt(messages)
-        async for output in session.send_message_stream(prompt):
+        async for output in session.send_message_stream(prompt, temporary=self._temporary):
             # Gemini-API exposes the complete response in ``text`` and only the
             # newly arrived characters in ``text_delta``.  The engine's stream
             # contract requires deltas; yielding ``text`` repeats prior chunks.

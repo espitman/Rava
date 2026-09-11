@@ -16,8 +16,10 @@ class Config:
     port: int = 8766
     chatgpt_url: str | None = "http://127.0.0.1:8080"
     chatgpt_api_key: str | None = None
+    chatgpt_project_name: str | None = "Rava"
     gemini_secure_1psid: str | None = None
     gemini_secure_1psidts: str | None = None
+    gemini_temporary: bool = True
 
     @classmethod
     def from_env(cls) -> Config:
@@ -36,21 +38,37 @@ class Config:
             chatgpt_api_key=_optional_string(
                 _setting(file_values, "CHATGPT_WEB2API_KEY", "chatgpt_api_key", None)
             ),
+            chatgpt_project_name=_optional_string(
+                _setting(file_values, "RAVA_CHATGPT_PROJECT", "chatgpt_project_name", "Rava")
+            ),
             gemini_secure_1psid=_optional_string(
                 _setting(file_values, "GEMINI_SECURE_1PSID", "gemini_secure_1psid", None)
             ),
             gemini_secure_1psidts=_optional_string(
                 _setting(file_values, "GEMINI_SECURE_1PSIDTS", "gemini_secure_1psidts", None)
             ),
+            gemini_temporary=_boolean(
+                _setting(file_values, "RAVA_GEMINI_TEMPORARY", "gemini_temporary", True)
+            ),
         )
 
     def providers(self) -> list[Provider]:
         providers: list[Provider] = []
         if self.chatgpt_url:
-            providers.append(ChatGPTWeb2APIProvider(self.chatgpt_url, self.chatgpt_api_key))
+            providers.append(
+                ChatGPTWeb2APIProvider(
+                    self.chatgpt_url,
+                    self.chatgpt_api_key,
+                    project_name=self.chatgpt_project_name,
+                )
+            )
         if self.gemini_secure_1psid:
             providers.append(
-                GeminiWebProvider(self.gemini_secure_1psid, self.gemini_secure_1psidts)
+                GeminiWebProvider(
+                    self.gemini_secure_1psid,
+                    self.gemini_secure_1psidts,
+                    temporary=self.gemini_temporary,
+                )
             )
         return providers
 
@@ -79,3 +97,14 @@ def _optional_string(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _boolean(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    normalized = str(value).strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"Expected a boolean setting, got: {value!r}")

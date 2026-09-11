@@ -16,9 +16,17 @@ class ChatGPTWeb2APIProvider(Provider):
 
     name = "chatgpt"
 
-    def __init__(self, base_url: str, api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str | None = None,
+        *,
+        project_name: str | None = "Rava",
+    ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
+        self._project_name = project_name
+        self._project_id: str | None = None
         self._http: aiohttp.ClientSession | None = None
 
     def _headers(self) -> dict[str, str]:
@@ -58,6 +66,9 @@ class ChatGPTWeb2APIProvider(Provider):
             "messages": [{"role": item.role, "content": item.content} for item in messages],
             "stream": True,
         }
+        project_id = await self._ensure_project()
+        if project_id:
+            body["project_id"] = project_id
         if session["conversation_id"]:
             body["conversation_id"] = session["conversation_id"]
         try:
@@ -79,6 +90,33 @@ class ChatGPTWeb2APIProvider(Provider):
                         raise ProviderUnavailable(content or "ChatGPT-Web2API stream failed")
         except aiohttp.ClientError as exc:
             raise ProviderUnavailable(f"ChatGPT-Web2API request failed: {exc}") from exc
+
+    async def _ensure_project(self) -> str | None:
+        if not self._project_name:
+            return None
+        if self._project_id:
+            return self._project_id
+        http = await self._session()
+        try:
+            async with http.get(f"{self._base_url}/v1/projects") as response:
+                payload = await response.json(content_type=None)
+                if response.status != 200:
+                    raise ProviderUnavailable(_error_message(payload, response.status))
+            for project in payload.get("data", []):
+                if str(project.get("name", "")).casefold() == self._project_name.casefold():
+                    self._project_id = str(project["id"])
+                    return self._project_id
+            async with http.post(
+                f"{self._base_url}/v1/projects",
+                json={"name": self._project_name, "memory_scope": "project_v2"},
+            ) as response:
+                payload = await response.json(content_type=None)
+                if response.status not in {200, 201} or not payload.get("id"):
+                    raise ProviderUnavailable(_error_message(payload, response.status))
+                self._project_id = str(payload["id"])
+                return self._project_id
+        except aiohttp.ClientError as exc:
+            raise ProviderUnavailable(f"Could not prepare ChatGPT project: {exc}") from exc
 
     async def status(self) -> ProviderStatus:
         http = await self._session()
