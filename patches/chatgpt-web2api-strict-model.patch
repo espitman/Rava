@@ -1,0 +1,217 @@
+diff --git a/src/chatgpt_web2api/api_server.py b/src/chatgpt_web2api/api_server.py
+index c0ce889..f9bcbdf 100644
+--- a/src/chatgpt_web2api/api_server.py
++++ b/src/chatgpt_web2api/api_server.py
+@@ -208,15 +208,16 @@ class APIServer:
+             )
+
+         if not models:
+-            for slug in ["auto", "gpt-5-5", "gpt-5-mini"]:
+-                models.append(
+-                    {
+-                        "id": slug,
+-                        "object": "model",
+-                        "created": 1700000000,
+-                        "owned_by": "chatgpt-web",
++            return web.json_response(
++                {
++                    "error": {
++                        "message": "Could not discover models from the logged-in account",
++                        "type": "model_discovery_error",
++                        "code": "model_discovery_failed",
+                     }
+-                )
++                },
++                status=503,
++            )
+
+         return web.json_response({"object": "list", "data": models})
+
+@@ -328,6 +329,14 @@ class APIServer:
+             # (the user may have logged back in).
+             await self._check_circuit_or_recover()
+
++            if model_slug and model_slug != "auto":
++                available_models = await self._driver.get_models()
++                available_slugs = {item.get("slug") for item in available_models}
++                if model_slug not in available_slugs:
++                    raise RuntimeError(
++                        f"Requested model '{model_slug}' is not available to this account"
++                    )
++
+             # PR4/5: per-target lock in parallel mode (port-wide otherwise).
+             # Resolver raises OwnedTabRequiredError (→ 503) if parallel mode
+             # has no owned target rather than silently degrading to the port
+@@ -356,37 +365,27 @@ class APIServer:
+                 # already knowing the circuit is open.
+                 await self._check_circuit_or_recover()
+
+-                # Select model if specified (non-fatal on failure)
+-                if model_slug and model_slug != "auto":
+-                    selected = await self._driver.select_model(model_slug)
+-                    if not selected:
+-                        logger.warning(
+-                            "Could not select model '%s', proceeding with active model",
+-                            model_slug,
+-                        )
+-
+                 # Decide: continue existing conversation or start fresh?
+                 if conversation_id:
+                     # Explicit conversation_id from client — navigate to it
+                     await self._driver.navigate_conversation(conversation_id)
+-                elif (
+-                    self._last_conv_id
+-                    and self._driver._current_conv_id == self._last_conv_id
+-                    and project_id == self._last_project_id
+-                    and not system_parts
+-                ):
+-                    # Same session, same project, no system prompt override — continue.
+-                    # Reconcile against the live tab before sending: another process
+-                    # sharing the Chrome tab may have navigated it since our last turn,
+-                    # which would leave _current_conv_id stale. ensure_current_conversation
+-                    # verifies location.href and navigates back if needed (fail-closed).
+-                    logger.info("Continuing conversation: %s", self._last_conv_id)
+-                    await self._driver.ensure_current_conversation(self._last_conv_id)
+                 else:
+-                    # Fresh chat
++                    # Absence of an explicit conversation id always means a
++                    # fresh chat. Implicitly reusing the sidecar's last chat
++                    # can leak context between independent API clients.
+                     await self._driver.navigate_new_chat(gizmo_id=project_id)
+                     self._last_project_id = project_id
+
++                # Select only after navigation. The modern ChatGPT UI uses a
++                # model route fallback, so selecting before navigate_new_chat
++                # would immediately reset the requested model to auto.
++                if model_slug and model_slug != "auto":
++                    selected = await self._driver.select_model(model_slug)
++                    if not selected:
++                        raise RuntimeError(
++                            f"Requested model '{model_slug}' could not be selected; request aborted"
++                        )
++
+                 if stream:
+                     return await self._stream_response(request, model_slug, full_text, timeout)
+                 else:
+diff --git a/src/chatgpt_web2api/cdp_driver.py b/src/chatgpt_web2api/cdp_driver.py
+index 3bc3eae..39356f6 100644
+--- a/src/chatgpt_web2api/cdp_driver.py
++++ b/src/chatgpt_web2api/cdp_driver.py
+@@ -1132,9 +1132,6 @@ class CDPDriver:
+         if slug in ("auto", None, ""):
+             return True  # auto is the default, no action needed
+
+-        # Track the current model
+-        self._current_model = slug
+-
+         # Click the model picker button
+         picker_clicked = await self._js(
+             "(function() {"
+@@ -1148,9 +1145,34 @@ class CDPDriver:
+             "})()"
+         )
+         if picker_clicked != "clicked":
+-            logger.warning(
+-                "Model picker not found: %s — proceeding with active model", picker_clicked
+-            )
++            # ChatGPT's current composer no longer exposes the legacy model
++            # selector.  Its own model links use the ``?model=`` route, which
++            # also works for an existing /c/<id> conversation.  Preserve the
++            # current path, navigate through that route, and require the real
++            # composer to become ready before reporting success.
++            current_url = await self._js("location.href")
++            try:
++                current_path = urllib.parse.urlparse(current_url).path or "/"
++                model_url = (
++                    "https://chatgpt.com"
++                    f"{current_path}?model={urllib.parse.quote(slug, safe='')}"
++                )
++                await self._cdp("Page.navigate", {"url": model_url})
++                if await self._wait_for_composer(timeout=15):
++                    if slug == "gpt-5-5":
++                        selected_label = await self._js(
++                            "document.body.innerText.includes('GPT-5.5') ? "
++                            "'selected' : 'not-selected'"
++                        )
++                        if selected_label != "selected":
++                            logger.warning("Model route did not display GPT-5.5")
++                            return False
++                    self._current_model = slug
++                    logger.info("Model selected through model route: %s", slug)
++                    return True
++            except Exception as exc:
++                logger.warning("Model route selection failed for %s: %s", slug, exc)
++            logger.warning("Model picker not found and model route was not ready: %s", slug)
+             return False
+
+         # Wait for dropdown to appear
+@@ -1191,6 +1213,7 @@ class CDPDriver:
+         )
+
+         if result in ("selected", "selected-fallback"):
++            self._current_model = slug
+             logger.info("Model selected: %s (%s)", slug, result)
+             await asyncio.sleep(0.5)  # Let UI settle
+             return True
+diff --git a/tests/test_conversation_guard.py b/tests/test_conversation_guard.py
+index 8dcbf17..0d114fd 100644
+--- a/tests/test_conversation_guard.py
++++ b/tests/test_conversation_guard.py
+@@ -235,18 +235,11 @@ async def test_navigate_conversation_raises_and_clears_when_never_ready(monkeypa
+     assert d._current_conv_id is None  # stale id cleared, not admitted
+
+
+-# ── 5. REST auto-continue calls the guard ─────────────────────────────
++# ── 5. REST requires explicit conversation ids ───────────────────────
+
+ @pytest.mark.asyncio
+-async def test_rest_auto_continue_invokes_ensure_current(monkeypatch):
+-    """The REST continue branch must call ensure_current_conversation instead
+-    of sleeping and trusting the local _current_conv_id.
+-
+-    Drives the real _handle_chat with a fake request whose body triggers the
+-    continue branch (matching _last_conv_id/_current_conv_id, no system prompt).
+-    _full_response is stubbed to raise so we can prove the guard ran before
+-    the response path without coupling to the streaming internals.
+-    """
++async def test_rest_without_conversation_id_starts_fresh(monkeypatch):
++    """A REST request without conversation_id must never reuse prior context."""
+     import chatgpt_web2api.api_server as srv
+
+     server = srv.APIServer.__new__(srv.APIServer)  # bypass __init__
+@@ -263,6 +256,7 @@ async def test_rest_auto_continue_invokes_ensure_current(monkeypatch):
+     driver._current_model = None
+     driver.select_model = AsyncMock(return_value=True)
+     driver.ensure_current_conversation = AsyncMock()
++    driver.navigate_new_chat = AsyncMock()
+     server._driver = driver
+
+     # Sentinel: _full_response records that we reached past the guard and
+@@ -275,8 +269,8 @@ async def test_rest_auto_continue_invokes_ensure_current(monkeypatch):
+     server._full_response = _stub_response
+     server._stream_response = _stub_response
+
+-    # Fake request: a user message, no conversation_id (→ continue branch),
+-    # matching the server's _last_conv_id.
++    # A missing conversation_id must mean a fresh chat even when the sidecar
++    # still remembers its previous conversation.
+     request = MagicMock()
+     request.headers = {}
+     request.json = AsyncMock(return_value={
+@@ -293,9 +287,8 @@ async def test_rest_auto_continue_invokes_ensure_current(monkeypatch):
+
+     await server._handle_chat(request)
+
+-    # The guard ran (proving the continue branch was taken), and execution
+-    # reached _full_response (proving we proceeded past the guard correctly).
+-    driver.ensure_current_conversation.assert_awaited_once_with("conv-rest-1")
++    driver.ensure_current_conversation.assert_not_awaited()
++    driver.navigate_new_chat.assert_awaited_once_with(gizmo_id=None)
+     assert reached["past_guard"] is True
+
+
+@@ -582,4 +575,3 @@ async def test_cdp_does_not_loop_if_reconnect_also_fails():
+         await d._cdp("Runtime.evaluate")
+
+     assert reconnect_calls["n"] == 1, "must reconnect at most ONCE, never loop"
+-
