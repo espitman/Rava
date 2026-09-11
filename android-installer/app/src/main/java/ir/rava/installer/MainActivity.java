@@ -16,6 +16,8 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.method.ScrollingMovementMethod;
 import android.view.Gravity;
 import android.view.View;
@@ -69,6 +71,7 @@ public class MainActivity extends Activity {
     private ImageButton sendButton;
     private String conversationId;
     private Typeface chatTypeface;
+    private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private final BroadcastReceiver resultReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             renderLastResult();
@@ -442,8 +445,10 @@ public class MainActivity extends Activity {
 
         String model = selected.toString();
         addMessageBubble("You", message, true);
-        TextView answerBubble = addMessageBubble(model, "…", false);
+        TextView answerBubble = addMessageBubble(model, "...", false);
+        Runnable typingAnimation = startTypingAnimation(answerBubble);
         chatInput.setText("");
+        focusChatInput();
         sendButton.setEnabled(false);
         chatStatus.setText("Waiting for " + model + "…");
 
@@ -460,18 +465,22 @@ public class MainActivity extends Activity {
 
                 String answer = streamChatCompletion(body, answerBubble);
                 runOnUiThread(() -> {
+                    stopTypingAnimation(answerBubble, typingAnimation);
                     if (answer.isEmpty()) answerBubble.setText("(Empty response)");
                     chatStatus.setText("Conversation active");
                     sendButton.setEnabled(true);
+                    focusChatInput();
                     scrollChatToBottom();
                 });
             } catch (Exception exception) {
                 runOnUiThread(() -> {
+                    stopTypingAnimation(answerBubble, typingAnimation);
                     conversationId = null;
                     answerBubble.setText(exception.getMessage());
                     answerBubble.setTextColor(Color.rgb(176, 0, 32));
                     chatStatus.setText("Request failed");
                     sendButton.setEnabled(true);
+                    focusChatInput();
                     scrollChatToBottom();
                 });
             }
@@ -523,6 +532,7 @@ public class MainActivity extends Activity {
                 answer.append(chunk);
                 String visibleText = answer.toString();
                 runOnUiThread(() -> {
+                    answerBubble.setTag(null);
                     answerBubble.setText(visibleText);
                     applyMessageDirection(answerBubble, visibleText);
                     chatStatus.setText("Receiving response…");
@@ -533,6 +543,27 @@ public class MainActivity extends Activity {
             connection.disconnect();
         }
         return answer.toString();
+    }
+
+    private Runnable startTypingAnimation(TextView bubble) {
+        Runnable animation = new Runnable() {
+            private int frame;
+            private final String[] frames = {".", "..", "..."};
+
+            @Override public void run() {
+                if (bubble.getTag() != this) return;
+                bubble.setText(frames[frame++ % frames.length]);
+                uiHandler.postDelayed(this, 320);
+            }
+        };
+        bubble.setTag(animation);
+        uiHandler.post(animation);
+        return animation;
+    }
+
+    private void stopTypingAnimation(TextView bubble, Runnable animation) {
+        if (bubble.getTag() == animation) bubble.setTag(null);
+        uiHandler.removeCallbacks(animation);
     }
 
     private JSONObject requestJson(String method, String path, JSONObject body) throws Exception {
@@ -632,7 +663,7 @@ public class MainActivity extends Activity {
     }
 
     private void scrollChatToBottom() {
-        chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
+        chatScroll.post(() -> chatScroll.smoothScrollTo(0, chatMessages.getBottom()));
     }
 
     private void resetChat() {
@@ -643,9 +674,16 @@ public class MainActivity extends Activity {
         emptyChat.setTextColor(Color.rgb(55, 55, 55));
         chatMessages.addView(emptyChat, new LinearLayout.LayoutParams(-1, dp(180)));
         chatStatus.setText("New conversation ready");
+        focusChatInput();
+    }
+
+    private void focusChatInput() {
         chatInput.requestFocus();
-        ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
-                .showSoftInput(chatInput, InputMethodManager.SHOW_IMPLICIT);
+        chatInput.post(() -> {
+            chatInput.requestFocus();
+            ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
+                    .showSoftInput(chatInput, InputMethodManager.SHOW_IMPLICIT);
+        });
     }
 
     private void refreshPrerequisites() {

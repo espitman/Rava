@@ -62,12 +62,12 @@ class GeminiWebProvider(Provider):
 
     async def send(self, session: Any, messages: Sequence[Message]) -> AsyncIterator[str]:
         prompt = _messages_to_prompt(messages)
-        async for output in session.send_message_stream(prompt, temporary=self._temporary):
-            # Gemini-API exposes the complete response in ``text`` and only the
-            # newly arrived characters in ``text_delta``.  The engine's stream
-            # contract requires deltas; yielding ``text`` repeats prior chunks.
-            if output.text_delta:
-                yield output.text_delta
+        # Gemini may revise a candidate while its web stream is still arriving.
+        # Forwarding those provisional deltas can expose a stray suffix instead
+        # of the final answer, so publish only the completed candidate text.
+        output = await session.send_message(prompt, temporary=self._temporary)
+        if output.text:
+            yield output.text
 
     async def status(self) -> ProviderStatus:
         try:
