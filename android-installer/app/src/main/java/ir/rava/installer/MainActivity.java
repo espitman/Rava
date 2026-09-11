@@ -24,6 +24,7 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
+import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
@@ -108,13 +109,14 @@ public class MainActivity extends Activity {
 
         LinearLayout navigation = new LinearLayout(this);
         navigation.setOrientation(LinearLayout.HORIZONTAL);
-        navigation.setPadding(dp(8), dp(4), dp(8), dp(4));
+        navigation.setPadding(dp(18), 0, dp(18), 0);
         navigation.setBackgroundColor(Color.WHITE);
         navigation.setElevation(dp(8));
-        TextView setupDestination = navigationItem("⚙  Setup", true);
-        TextView chatDestination = navigationItem("●  Chat", false);
-        navigation.addView(setupDestination, new LinearLayout.LayoutParams(0, dp(42), 1));
-        navigation.addView(chatDestination, new LinearLayout.LayoutParams(0, dp(42), 1));
+        navigation.setBackground(bottomRounded(Color.WHITE, 28));
+        ImageButton setupDestination = navigationItem(R.drawable.ic_home, "Setup", true);
+        ImageButton chatDestination = navigationItem(R.drawable.ic_chat, "Chat", false);
+        navigation.addView(setupDestination, new LinearLayout.LayoutParams(0, dp(50), 1));
+        navigation.addView(chatDestination, new LinearLayout.LayoutParams(0, dp(50), 1));
 
         setupDestination.setOnClickListener(view -> {
             setupPage.setVisibility(View.VISIBLE);
@@ -131,7 +133,10 @@ public class MainActivity extends Activity {
         });
 
         root.addView(pages, new LinearLayout.LayoutParams(-1, 0, 1));
-        root.addView(navigation, new LinearLayout.LayoutParams(-1, dp(50)));
+        FrameLayout navigationArea = new FrameLayout(this);
+        navigationArea.setPadding(dp(18), 0, dp(18), dp(6));
+        navigationArea.addView(navigation, new FrameLayout.LayoutParams(-1, dp(50)));
+        root.addView(navigationArea, new LinearLayout.LayoutParams(-1, dp(56)));
         return root;
     }
 
@@ -591,20 +596,21 @@ public class MainActivity extends Activity {
         return view;
     }
 
-    private TextView navigationItem(String label, boolean selected) {
-        TextView item = text(label, 14, true);
-        item.setGravity(Gravity.CENTER);
+    private ImageButton navigationItem(int icon, String label, boolean selected) {
+        ImageButton item = new ImageButton(this);
+        item.setImageResource(icon);
+        item.setScaleType(ImageButton.ScaleType.CENTER);
+        item.setPadding(dp(13), dp(13), dp(13), dp(13));
         item.setClickable(true);
         item.setFocusable(true);
-        item.setContentDescription(label.replace("⚙  ", "").replace("●  ", ""));
+        item.setContentDescription(label);
         styleNavigationItem(item, selected);
         return item;
     }
 
-    private void styleNavigationItem(TextView item, boolean selected) {
-        item.setTextColor(selected ? Color.rgb(83, 55, 150) : Color.rgb(92, 88, 99));
-        item.setBackground(rounded(
-                selected ? Color.rgb(238, 234, 247) : Color.TRANSPARENT, 12));
+    private void styleNavigationItem(ImageButton item, boolean selected) {
+        item.setColorFilter(selected ? Color.rgb(103, 80, 164) : Color.rgb(32, 30, 34));
+        item.setBackgroundColor(Color.TRANSPARENT);
     }
 
     private boolean allReady(boolean termux, boolean x11, boolean permission) {
@@ -676,6 +682,14 @@ public class MainActivity extends Activity {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(color);
         drawable.setCornerRadius(dp(radiusDp));
+        return drawable;
+    }
+
+    private GradientDrawable bottomRounded(int color, int radiusDp) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color);
+        float radius = dp(radiusDp);
+        drawable.setCornerRadii(new float[]{0, 0, 0, 0, radius, radius, radius, radius});
         return drawable;
     }
 
