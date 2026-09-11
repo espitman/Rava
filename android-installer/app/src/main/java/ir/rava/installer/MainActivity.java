@@ -111,8 +111,6 @@ public class MainActivity extends Activity {
         navigation.setOrientation(LinearLayout.HORIZONTAL);
         navigation.setPadding(dp(18), 0, dp(18), 0);
         navigation.setBackgroundColor(Color.WHITE);
-        navigation.setElevation(dp(8));
-        navigation.setBackground(bottomRounded(Color.WHITE, 28));
         ImageButton setupDestination = navigationItem(R.drawable.ic_home, "Setup", true);
         ImageButton chatDestination = navigationItem(R.drawable.ic_chat, "Chat", false);
         navigation.addView(setupDestination, new LinearLayout.LayoutParams(0, dp(50), 1));
@@ -133,10 +131,12 @@ public class MainActivity extends Activity {
         });
 
         root.addView(pages, new LinearLayout.LayoutParams(-1, 0, 1));
-        FrameLayout navigationArea = new FrameLayout(this);
-        navigationArea.setPadding(dp(18), 0, dp(18), dp(6));
-        navigationArea.addView(navigation, new FrameLayout.LayoutParams(-1, dp(50)));
-        root.addView(navigationArea, new LinearLayout.LayoutParams(-1, dp(56)));
+        View topShadow = new View(this);
+        topShadow.setBackground(new GradientDrawable(
+                GradientDrawable.Orientation.BOTTOM_TOP,
+                new int[]{0x24000000, 0x00000000}));
+        root.addView(topShadow, new LinearLayout.LayoutParams(-1, dp(5)));
+        root.addView(navigation, new LinearLayout.LayoutParams(-1, dp(48)));
         return root;
     }
 
@@ -682,14 +682,6 @@ public class MainActivity extends Activity {
         GradientDrawable drawable = new GradientDrawable();
         drawable.setColor(color);
         drawable.setCornerRadius(dp(radiusDp));
-        return drawable;
-    }
-
-    private GradientDrawable bottomRounded(int color, int radiusDp) {
-        GradientDrawable drawable = new GradientDrawable();
-        drawable.setColor(color);
-        float radius = dp(radiusDp);
-        drawable.setCornerRadii(new float[]{0, 0, 0, 0, radius, radius, radius, radius});
         return drawable;
     }
 
