@@ -19,6 +19,7 @@ import android.os.Bundle;
 import android.text.method.ScrollingMovementMethod;
 import android.view.Gravity;
 import android.view.View;
+import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
@@ -35,9 +36,11 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
@@ -59,10 +62,13 @@ public class MainActivity extends Activity {
     private Spinner modelSpinner;
     private ArrayAdapter<String> modelAdapter;
     private EditText chatInput;
-    private TextView chatTranscript;
+    private LinearLayout chatMessages;
+    private ScrollView chatScroll;
+    private TextView emptyChat;
     private TextView chatStatus;
-    private Button sendButton;
+    private ImageButton sendButton;
     private String conversationId;
+    private Typeface chatTypeface;
     private final BroadcastReceiver resultReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             renderLastResult();
@@ -72,6 +78,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        chatTypeface = getResources().getFont(R.font.vazirmatn_regular);
         setTitle("Rava Setup");
         setContentView(buildUi());
     }
@@ -225,17 +232,21 @@ public class MainActivity extends Activity {
     }
 
     private View buildChatUi() {
-        int pad = dp(16);
+        int pad = dp(12);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(pad, pad, pad, pad);
-        content.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
+        content.setBackgroundColor(Color.WHITE);
 
-        TextView title = text("Test chat", 28, true);
-        content.addView(title);
-        TextView subtitle = text("Send a message through the local Rava engine.", 15, false);
-        subtitle.setTextColor(Color.rgb(92, 88, 99));
-        content.addView(subtitle, smallGap());
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title = chatText("Rava", 22, true);
+        header.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
+        ImageButton newChat = iconButton(R.drawable.ic_new_chat, "New chat", Color.rgb(32, 30, 34));
+        newChat.setOnClickListener(view -> resetChat());
+        header.addView(newChat, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        content.addView(header);
 
         LinearLayout modelRow = new LinearLayout(this);
         modelRow.setOrientation(LinearLayout.HORIZONTAL);
@@ -244,62 +255,77 @@ public class MainActivity extends Activity {
         modelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item,
                 new ArrayList<>());
         modelSpinner.setAdapter(modelAdapter);
-        modelRow.addView(modelSpinner, new LinearLayout.LayoutParams(0, dp(52), 1));
+        modelSpinner.setBackground(rounded(Color.rgb(245, 245, 245), 14));
+        modelRow.addView(modelSpinner, new LinearLayout.LayoutParams(0, dp(46), 1));
         Button reload = new Button(this);
         reload.setText("Reload");
         reload.setAllCaps(false);
+        reload.setTypeface(chatTypeface);
+        reload.setBackground(rounded(Color.rgb(245, 245, 245), 14));
         reload.setOnClickListener(view -> loadModels());
-        LinearLayout.LayoutParams reloadParams = new LinearLayout.LayoutParams(dp(104), dp(48));
+        LinearLayout.LayoutParams reloadParams = new LinearLayout.LayoutParams(dp(92), dp(46));
         reloadParams.leftMargin = dp(8);
         modelRow.addView(reload, reloadParams);
-        content.addView(modelRow, sectionGap());
+        content.addView(modelRow, smallGap());
 
-        chatStatus = text("Open Chat after starting the engine.", 13, true);
+        chatStatus = chatText("Open Chat after starting the engine.", 12, false);
         chatStatus.setTextColor(Color.rgb(92, 88, 99));
         content.addView(chatStatus, smallGap());
 
-        chatTranscript = text("Start a new conversation by sending a message.", 15, false);
-        chatTranscript.setTextIsSelectable(true);
-        chatTranscript.setPadding(dp(16), dp(16), dp(16), dp(16));
-        chatTranscript.setBackground(rounded(Color.WHITE, 18));
-        ScrollView transcriptScroll = new ScrollView(this);
-        transcriptScroll.addView(chatTranscript);
+        chatMessages = new LinearLayout(this);
+        chatMessages.setOrientation(LinearLayout.VERTICAL);
+        chatMessages.setPadding(dp(2), dp(14), dp(2), dp(14));
+        emptyChat = chatText("How can I help?", 24, true);
+        emptyChat.setGravity(Gravity.CENTER);
+        emptyChat.setTextColor(Color.rgb(55, 55, 55));
+        chatMessages.addView(emptyChat, new LinearLayout.LayoutParams(-1, dp(180)));
+        chatScroll = new ScrollView(this);
+        chatScroll.setFillViewport(true);
+        chatScroll.addView(chatMessages);
         LinearLayout.LayoutParams transcriptParams = new LinearLayout.LayoutParams(-1, 0, 1);
-        transcriptParams.topMargin = dp(14);
-        content.addView(transcriptScroll, transcriptParams);
+        transcriptParams.topMargin = dp(4);
+        content.addView(chatScroll, transcriptParams);
+
+        LinearLayout composer = new LinearLayout(this);
+        composer.setOrientation(LinearLayout.HORIZONTAL);
+        composer.setGravity(Gravity.BOTTOM);
+        composer.setPadding(dp(6), dp(4), dp(5), dp(4));
+        composer.setBackground(rounded(Color.rgb(244, 244, 244), 24));
 
         chatInput = new EditText(this);
-        chatInput.setHint("Type a message…");
+        chatInput.setHint("پیام خود را بنویسید…");
         chatInput.setTextSize(16);
-        chatInput.setMinHeight(dp(56));
+        chatInput.setTypeface(chatTypeface);
+        chatInput.setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG);
+        chatInput.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        chatInput.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+        chatInput.setSingleLine(false);
         chatInput.setMaxLines(5);
-        chatInput.setPadding(dp(14), dp(10), dp(14), dp(10));
-        chatInput.setBackground(rounded(Color.WHITE, 16));
+        chatInput.setImeOptions(EditorInfo.IME_ACTION_SEND);
+        chatInput.setPadding(dp(10), dp(8), dp(10), dp(8));
+        chatInput.setBackgroundColor(Color.TRANSPARENT);
         chatInput.setOnClickListener(view -> {
             chatInput.requestFocus();
             ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
                     .showSoftInput(chatInput, InputMethodManager.SHOW_IMPLICIT);
         });
-        content.addView(chatInput, sectionGap());
+        chatInput.setOnEditorActionListener((view, actionId, event) -> {
+            if (actionId == EditorInfo.IME_ACTION_SEND) {
+                sendChatMessage();
+                return true;
+            }
+            return false;
+        });
+        composer.addView(chatInput, new LinearLayout.LayoutParams(0, -2, 1));
 
-        LinearLayout actions = new LinearLayout(this);
-        actions.setOrientation(LinearLayout.HORIZONTAL);
-        Button newChat = new Button(this);
-        newChat.setText("New chat");
-        newChat.setAllCaps(false);
-        newChat.setOnClickListener(view -> resetChat());
-        actions.addView(newChat, new LinearLayout.LayoutParams(0, dp(50), 1));
-        sendButton = new Button(this);
-        sendButton.setText("Send");
-        sendButton.setAllCaps(false);
-        sendButton.setTextColor(Color.WHITE);
-        sendButton.setTypeface(sendButton.getTypeface(), Typeface.BOLD);
-        sendButton.setBackground(rounded(Color.rgb(103, 80, 164), 14));
+        sendButton = iconButton(R.drawable.ic_send, "Send", Color.WHITE);
+        sendButton.setBackground(rounded(Color.rgb(32, 30, 34), 22));
         sendButton.setOnClickListener(view -> sendChatMessage());
-        LinearLayout.LayoutParams sendParams = new LinearLayout.LayoutParams(0, dp(50), 1);
-        sendParams.leftMargin = dp(8);
-        actions.addView(sendButton, sendParams);
-        content.addView(actions, spaced());
+        composer.addView(sendButton, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        LinearLayout.LayoutParams composerParams = new LinearLayout.LayoutParams(-1, -2);
+        composerParams.topMargin = dp(8);
+        composerParams.bottomMargin = dp(8);
+        content.addView(composer, composerParams);
 
         return content;
     }
@@ -385,6 +411,7 @@ public class MainActivity extends Activity {
                 for (int index = 0; index < data.length(); index++) {
                     models.add(data.getJSONObject(index).getString("id"));
                 }
+                models.sort((left, right) -> Integer.compare(modelPriority(left), modelPriority(right)));
                 runOnUiThread(() -> {
                     modelAdapter.clear();
                     modelAdapter.addAll(models);
@@ -414,7 +441,8 @@ public class MainActivity extends Activity {
         }
 
         String model = selected.toString();
-        appendTranscript("You", message);
+        addMessageBubble("You", message, true);
+        TextView answerBubble = addMessageBubble(model, "…", false);
         chatInput.setText("");
         sendButton.setEnabled(false);
         chatStatus.setText("Waiting for " + model + "…");
@@ -424,29 +452,83 @@ public class MainActivity extends Activity {
                 JSONObject body = new JSONObject();
                 body.put("app_id", "ir.rava.installer.chat");
                 body.put("model", model);
-                body.put("stream", false);
+                body.put("stream", true);
                 JSONArray messages = new JSONArray();
                 messages.put(new JSONObject().put("role", "user").put("content", message));
                 body.put("messages", messages);
                 if (conversationId != null) body.put("conversation_id", conversationId);
 
-                JSONObject response = requestJson("POST", "/v1/chat/completions", body);
-                String answer = response.getJSONArray("choices").getJSONObject(0)
-                        .getJSONObject("message").getString("content");
-                conversationId = response.optString("conversation_id", conversationId);
+                String answer = streamChatCompletion(body, answerBubble);
                 runOnUiThread(() -> {
-                    appendTranscript(model, answer);
+                    if (answer.isEmpty()) answerBubble.setText("(Empty response)");
                     chatStatus.setText("Conversation active");
                     sendButton.setEnabled(true);
+                    scrollChatToBottom();
                 });
             } catch (Exception exception) {
                 runOnUiThread(() -> {
-                    appendTranscript("Error", exception.getMessage());
+                    answerBubble.setText(exception.getMessage());
+                    answerBubble.setTextColor(Color.rgb(176, 0, 32));
                     chatStatus.setText("Request failed");
                     sendButton.setEnabled(true);
+                    scrollChatToBottom();
                 });
             }
         }).start();
+    }
+
+    private String streamChatCompletion(JSONObject body, TextView answerBubble) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(
+                "http://127.0.0.1:8766/v1/chat/completions").openConnection();
+        connection.setRequestMethod("POST");
+        connection.setConnectTimeout(5000);
+        connection.setReadTimeout(180000);
+        connection.setDoOutput(true);
+        connection.setRequestProperty("Accept", "text/event-stream");
+        connection.setRequestProperty("Content-Type", "application/json");
+        connection.setRequestProperty("X-Rava-App-Id", "ir.rava.installer.chat");
+        connection.getOutputStream().write(body.toString().getBytes(StandardCharsets.UTF_8));
+
+        int status = connection.getResponseCode();
+        if (status < 200 || status >= 300) {
+            InputStream errorStream = connection.getErrorStream();
+            String detail = errorStream == null ? "" : readText(errorStream);
+            connection.disconnect();
+            try {
+                detail = new JSONObject(detail).getJSONObject("error").getString("message");
+            } catch (Exception ignored) {
+                // Preserve the raw response when it does not use the Rava error schema.
+            }
+            throw new IOException("HTTP " + status + (detail.isEmpty() ? "" : ": " + detail));
+        }
+
+        StringBuilder answer = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
+                connection.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.startsWith("data: ")) continue;
+                String data = line.substring(6);
+                if ("[DONE]".equals(data)) break;
+                JSONObject event = new JSONObject(data);
+                conversationId = event.optString("conversation_id", conversationId);
+                JSONObject delta = event.getJSONArray("choices").getJSONObject(0)
+                        .getJSONObject("delta");
+                String chunk = delta.optString("content", "");
+                if (chunk.isEmpty()) continue;
+                answer.append(chunk);
+                String visibleText = answer.toString();
+                runOnUiThread(() -> {
+                    answerBubble.setText(visibleText);
+                    applyMessageDirection(answerBubble, visibleText);
+                    chatStatus.setText("Receiving response…");
+                    scrollChatToBottom();
+                });
+            }
+        } finally {
+            connection.disconnect();
+        }
+        return answer.toString();
     }
 
     private JSONObject requestJson(String method, String path, JSONObject body) throws Exception {
@@ -489,15 +571,73 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void appendTranscript(String author, String message) {
-        String current = chatTranscript.getText().toString();
-        if (current.startsWith("Start a new conversation")) current = "";
-        chatTranscript.setText(current + (current.isEmpty() ? "" : "\n\n") + author + "\n" + message);
+    private int modelPriority(String model) {
+        if ("gemini/gemini-flash".equals(model)) return 0;
+        if (model.startsWith("gemini/")) return 1;
+        return 2;
+    }
+
+    private TextView addMessageBubble(String author, String message, boolean user) {
+        emptyChat.setVisibility(View.GONE);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(user ? Gravity.END : Gravity.START);
+
+        LinearLayout group = new LinearLayout(this);
+        group.setOrientation(LinearLayout.VERTICAL);
+        group.setGravity(user ? Gravity.END : Gravity.START);
+
+        TextView authorView = chatText(author, 11, true);
+        authorView.setTextColor(Color.rgb(105, 105, 105));
+        group.addView(authorView);
+
+        TextView bubble = chatText(message, 16, false);
+        bubble.setTextIsSelectable(true);
+        bubble.setLineSpacing(0, 1.15f);
+        bubble.setMaxWidth((int) (getResources().getDisplayMetrics().widthPixels * 0.84f));
+        bubble.setPadding(dp(14), dp(10), dp(14), dp(10));
+        bubble.setBackground(rounded(
+                user ? Color.rgb(235, 229, 248) : Color.rgb(245, 245, 245), 18));
+        applyMessageDirection(bubble, message);
+        group.addView(bubble, smallGap());
+
+        row.addView(group, new LinearLayout.LayoutParams(-2, -2));
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+        rowParams.topMargin = dp(10);
+        chatMessages.addView(row, rowParams);
+        scrollChatToBottom();
+        return bubble;
+    }
+
+    private void applyMessageDirection(TextView view, String message) {
+        boolean rtl = containsRtl(message);
+        view.setLayoutDirection(rtl ? View.LAYOUT_DIRECTION_RTL : View.LAYOUT_DIRECTION_LTR);
+        view.setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG);
+        view.setGravity(Gravity.START);
+    }
+
+    private boolean containsRtl(String value) {
+        for (int index = 0; index < value.length(); index++) {
+            byte direction = Character.getDirectionality(value.charAt(index));
+            if (direction == Character.DIRECTIONALITY_RIGHT_TO_LEFT
+                    || direction == Character.DIRECTIONALITY_RIGHT_TO_LEFT_ARABIC) return true;
+            if (direction == Character.DIRECTIONALITY_LEFT_TO_RIGHT) return false;
+        }
+        return false;
+    }
+
+    private void scrollChatToBottom() {
+        chatScroll.post(() -> chatScroll.fullScroll(View.FOCUS_DOWN));
     }
 
     private void resetChat() {
         conversationId = null;
-        chatTranscript.setText("Start a new conversation by sending a message.");
+        chatMessages.removeAllViews();
+        emptyChat = chatText("How can I help?", 24, true);
+        emptyChat.setGravity(Gravity.CENTER);
+        emptyChat.setTextColor(Color.rgb(55, 55, 55));
+        chatMessages.addView(emptyChat, new LinearLayout.LayoutParams(-1, dp(180)));
         chatStatus.setText("New conversation ready");
         chatInput.requestFocus();
         ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
@@ -594,6 +734,23 @@ public class MainActivity extends Activity {
         view.setTextColor(Color.rgb(32, 30, 34));
         if (bold) view.setTypeface(view.getTypeface(), android.graphics.Typeface.BOLD);
         return view;
+    }
+
+    private TextView chatText(String value, int size, boolean bold) {
+        TextView view = text(value, size, false);
+        view.setTypeface(chatTypeface, bold ? Typeface.BOLD : Typeface.NORMAL);
+        return view;
+    }
+
+    private ImageButton iconButton(int icon, String description, int color) {
+        ImageButton button = new ImageButton(this);
+        button.setImageResource(icon);
+        button.setColorFilter(color);
+        button.setScaleType(ImageButton.ScaleType.CENTER);
+        button.setPadding(dp(11), dp(11), dp(11), dp(11));
+        button.setContentDescription(description);
+        button.setBackgroundColor(Color.TRANSPARENT);
+        return button;
     }
 
     private ImageButton navigationItem(int icon, String label, boolean selected) {
