@@ -103,9 +103,108 @@ this 4 KiB-page device. A physical 16 KiB-page device is still needed before
 claiming 16 KiB runtime compatibility. Reproduction details and the remaining
 Codex risks are in `android-runtime-probe/CODEX_ANDROID.md`.
 
+The Phase 3 pre-authentication build was 218,479,045 bytes with SHA-256
+`d99c388445570ec5d3e3d2763a4ad139b6795a98ef1519a7bde542faf5863859`.
+It packages the Android DNS-patched Codex executable with SHA-256
+`2442c82c9dc82903b6e50b1695a459d1441c56500852f14e3d03a344e3239d0a`.
+The patch changes only the two pinned musl `/etc/resolv.conf` strings after the
+official input passes hash and Sigstore checks. The app writes Android's active
+DNS configuration and a deterministic PEM bundle of public system trust anchors
+to app-private storage; Codex receives them through its working directory and
+`SSL_CERT_FILE`.
+
+On the physical device, `account/read` returned signed-out state with OpenAI
+authentication required. The integrated UI then received a device-code response
+with a nonempty code and `loginId`; the verification URL passed an exact HTTPS
+`auth.openai.com` allowlist. Automation recorded only those boolean checks, then
+closed the process and deleted transient state before opening a browser or
+performing user interaction. A separate device session sent the documented
+`account/login/cancel` request with the real `loginId`, received success, and
+exited 0. `codex-home`, `config.toml`, and the generated CA bundle were owner-only;
+credential persistence is pinned to Codex's file store. No API key or browser
+cookie path is present.
+
+## Codex authenticated conversation
+
+The user completed the documented app-server device-code flow, and
+`account/read` remained authenticated after the Android app and app-server were
+restarted. The Phase 3 APK SHA-256 was
+`8168c9ff02498a66e9ce2bb7ef80365b3f5fbedfd29ff5f7051611c9b8bda29c`.
+
+On the physical phone, the installed client completed `model/list`,
+`thread/start`, and `turn/start`. The authoritative final assistant item exactly
+matched the requested `سلام راوا`, the turn status was `completed`, and the
+app-server closed cleanly. After an Android force-stop, a new app-server process
+resumed the same persisted thread ID and completed a second matching turn. The
+owner-only state file contains only `threadId`, `status`, and `responseMatched`.
+
+The thread uses the strongest stable chat-only restrictions exposed by the
+pinned schema: an empty app-private working directory, read-only sandbox,
+approval policy `never`, explicit no-tool instructions, automatic decline for
+command/file approval callbacks, and fail-closed responses for unsupported
+server requests. This does not yet prove that every tool path is unavailable;
+an intentional tool attempt and Android sandbox behavior remain separate gates.
+
+## Gemini personal-account blocker
+
+The APK completed Google's OAuth approval and token exchange, but its first real
+Gemini CLI headless request was rejected by the service with
+`IneligibleTierError` / `UNSUPPORTED_CLIENT`. Google's official consumer-account
+deprecation says Gemini CLI stopped serving individual, Google AI Pro, and Google
+AI Ultra accounts on 2026-06-18 and no longer permits Login with Google for that
+product. npm stable remains `0.59.0`; a bounded inspection of official
+`0.60.0-preview.0` found byte-identical manual OAuth, setup, and ineligible-tier
+functions and identical OAuth client/backend sets. A package upgrade cannot
+restore the retired entitlement.
+
+Google names Antigravity CLI as the migration target, but its official arm64
+Linux `1.2.2` executable requires glibc and does not launch directly on Android.
+After an Astra risk review and explicit personal-use approval, the Termux test
+continued within a strict boundary: only Google's unmodified `agy`, only its
+documented CLI interfaces, and no token inspection/export, private endpoint
+calls, client-identity changes, or quota/safety bypass. This is not a zero-risk
+policy conclusion. Google's FAQ warns about third-party access while its
+headless guide expressly documents an application driving `agy` over
+stdin/stdout; neither explicitly addresses an Android/Termux launcher.
+
+Termux `glibc-runner 2.0-3` plus 40 automatic dependencies increased `PREFIX`
+by 414,526 KiB. Google's 54,016,481-byte archive passed its published SHA-512;
+the retained 202,985,704-byte `agy` has SHA-256
+`0735841949aaedc0ba4121a84b47b83b067b71af03d76897850077a4ee86bcdc`.
+`--version` returned `1.2.2` and `--help` passed on the phone without changing
+the binary. Local OAuth then hit an Android seccomp `SIGSYS` on `faccessat2` in
+Go's browser-launch lookup and exited 2. The documented Remote SSH mode avoids
+that browser launcher. Its first code exchange exposed an absent Android
+`/etc/resolv.conf`: Go fell back to `[::1]:53`, so the OAuth hostname did not
+resolve. Official Termux `proot` plus `libtalloc` added only 414 KiB measured and
+binds private hosts/resolver files without changing `agy`. A bounded
+unauthenticated run then started its listeners with zero DNS failures and exited
+with the expected authentication-required result. The fresh SSH-mode process
+reported `ssh=true`. Its first token-exchange TCP connection timed out until the
+owner enabled the phone's VPN; public DNS/TCP/TLS checks then passed from both
+Bionic and the proot/glibc environment. The next official OAuth run succeeded.
+No credential or token contents were inspected.
+
+Under that exact environment, `agy models` returned 14 model slugs with exit 0.
+A documented stream-JSON request to `gemini-3.8-flash-low` returned exactly
+`سلام راوا`, status `SUCCESS`, no tool events, and exit 0 in 8.913 seconds. A
+new process resumed the returned conversation ID and answered exactly
+`ادامه راوا`, with `num_turns: 2`, no tool events, and exit 0 in 8.186 seconds.
+Stdout and stderr stayed separate. The unmodified executable retained SHA-256
+`0735841949aaedc0ba4121a84b47b83b067b71af03d76897850077a4ee86bcdc`.
+Full measurements and primary links are in
+`android-runtime-probe/GEMINI_AUTH.md`.
+
 ## Remaining gate
 
-Device characterization, generic native execution, and Codex JSON-RPC
-initialization are verified. Codex authentication, a real conversation, SQLite
-state/locking, subprocess tools, and sandbox behavior remain open. The physical
-16 KiB-page gate also remains open.
+Device characterization, generic native execution, Codex JSON-RPC initialization,
+account state, device-code sign-in, a real turn, and persisted thread resume are
+verified.
+The Gemini personal-account flow is blocked by provider retirement. Its
+Antigravity replacement now passes official OAuth, model listing, a streamed
+real turn, and process-restart resume through Termux under the disclosed policy
+ambiguity. Rava-to-Termux service integration, Antigravity cancellation/logout/
+refresh/network-loss behavior, and an APK-independent product decision remain
+open. Codex credential refresh/logout, quota failures,
+SQLite state/locking under contention, subprocess tools, and sandbox behavior
+remain open. The physical 16 KiB-page gate also remains open.

@@ -69,11 +69,19 @@ tasks.register('verifyRuntimeInputs') {
     doLast {
         def nodeRuntime = file('src/main/jniLibs/arm64-v8a/libnode_runtime.so')
         def geminiBundle = file('src/main/assets/gemini/gemini.js')
+        def geminiAuthChunk = file('src/main/assets/gemini/chunk-YSBB75DZ.js')
+        def geminiAuthAdapter = file('src/main/assets/gemini-auth-probe.js')
         if (!nodeRuntime.isFile()) {
             throw new GradleException("Missing ${nodeRuntime}; run scripts/prepare-termux-node-runtime.sh")
         }
         if (!geminiBundle.isFile()) {
             throw new GradleException("Missing ${geminiBundle}; run scripts/fetch-gemini-cli.sh")
+        }
+        if (!geminiAuthChunk.isFile()) {
+            throw new GradleException("Gemini 0.59.0 auth chunk is missing: ${geminiAuthChunk}")
+        }
+        if (!geminiAuthAdapter.isFile()) {
+            throw new GradleException("Gemini auth adapter is missing: ${geminiAuthAdapter}")
         }
     }
 }
@@ -84,4 +92,5 @@ tasks.register('assembleRuntimeProbe') {
 
 dependencies {
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
 }

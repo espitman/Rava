@@ -13,6 +13,7 @@ for script in "$SCRIPT_DIR"/*.sh; do
 done
 
 node --check "$PROBE_DIR/app/src/main/assets/node-probe.js"
+node --check "$PROBE_DIR/app/src/main/assets/gemini-auth-probe.js"
 "$ROOT_DIR/android-installer/gradlew" -p "$PROBE_DIR" \
   :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
 

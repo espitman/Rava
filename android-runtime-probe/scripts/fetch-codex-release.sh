@@ -50,7 +50,16 @@ cosign verify-blob \
     --certificate-oidc-issuer "$CODEX_RELEASE_OIDC_ISSUER" \
     "$staging"
 
+# The official musl build resolves DNS through the conventional Linux
+# /etc/resolv.conf path, which Android applications do not have. MainActivity
+# writes the active Android network's DNS servers to its app-private working
+# directory, so make musl's two pinned resolver strings use that relative file.
+# This fixed-size patch is asserted by occurrence count and a pinned output hash.
+python3 "$script_dir/patch-fixed-string.py" "$staging" \
+    '/etc/resolv.conf' 'resolv.conf' --count 2 --nul-pad
+printf '%s  %s\n' "$CODEX_ANDROID_PATCHED_SHA256" "$staging" | shasum -a 256 -c -
+
 install -m 0755 "$staging" "$destination"
 "$script_dir/verify-codex-artifact.sh" "$destination"
-printf 'Packaged verified official Codex app-server %s for %s at %s\n' \
+printf 'Packaged verified and Android-DNS-patched Codex app-server %s for %s at %s\n' \
     "$CODEX_VERSION" "$CODEX_ANDROID_ABI" "$destination"

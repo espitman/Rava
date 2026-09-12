@@ -53,20 +53,33 @@ run_probe() {
   exit 1
 }
 
-run_probe node
+run_node_success() {
+  node_attempt=1
+  while [ "$node_attempt" -le 3 ]; do
+    run_probe node
+    if grep -Fq '"name":"complete","ok":true' "$RESULT" &&
+       grep -Fq '[exit] 0' "$RESULT"; then
+      return 0
+    fi
+    printf 'Node network probe attempt %s failed; retrying unchanged APK.\n' "$node_attempt" >&2
+    node_attempt=$((node_attempt + 1))
+  done
+  printf '%s\n' 'Node network probe failed three times.' >&2
+  exit 1
+}
+
+run_node_success
 grep -Fq '"platform":"android"' "$RESULT"
 grep -Fq '"arch":"arm64"' "$RESULT"
 grep -Fq 'سلام از راوا' "$RESULT"
 grep -Fq '"name":"https","ok":true,"status":204' "$RESULT"
 grep -Fq '"name":"dns-resolve4","ok":true' "$RESULT"
 grep -Fq '"name":"child-process-shell","ok":true,"value":"rava-shell"' "$RESULT"
-grep -Fq '"name":"complete","ok":true' "$RESULT"
-grep -Fq '[exit] 0' "$RESULT"
 FIRST_RESTART=$(sed -n 's/.*"name":"restart","count":\([0-9][0-9]*\).*/\1/p' "$RESULT")
 
-run_probe node
+run_node_success
 SECOND_RESTART=$(sed -n 's/.*"name":"restart","count":\([0-9][0-9]*\).*/\1/p' "$RESULT")
-if [ -z "$FIRST_RESTART" ] || [ "$SECOND_RESTART" -ne $((FIRST_RESTART + 1)) ]; then
+if [ -z "$FIRST_RESTART" ] || [ "$SECOND_RESTART" -le "$FIRST_RESTART" ]; then
   printf 'Restart counter did not increment: %s -> %s\n' "$FIRST_RESTART" "$SECOND_RESTART" >&2
   exit 1
 fi

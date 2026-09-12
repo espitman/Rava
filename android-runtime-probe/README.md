@@ -94,8 +94,35 @@ Node/Android/arm64, Farsi file round-trip, Persian `Intl`, an incrementing resta
 counter, HTTPS status 204, c-ares DNS, the default child-process shell, and exit
 code 0. The Gemini button must print exactly the pinned CLI version and exit 0.
 The same probes can be started over ADB with the `probe` intent extra set to
-`node`, `gemini-version`, or `codex`; the latest result is saved as
+`node`, `gemini-version`, `gemini-auth`, `gemini-headless`, or `codex`; the latest result is saved as
 `files/last-command.txt` for `run-as` inspection.
+
+See `GEMINI_AUTH.md` for the official Google Authorization Code + PKCE bridge,
+the exact user interaction, app-private credential storage, and remaining login
+and headless-response gates.
+
+### Optional Antigravity fallback in Termux
+
+Gemini CLI personal OAuth is retired for individual accounts. For the owner's
+explicitly approved personal-use fallback, these scripts install and run Google's
+unmodified Antigravity CLI using official Termux packages:
+
+```sh
+./scripts/install-antigravity-termux.sh install
+./scripts/install-antigravity-termux.sh verify
+./scripts/run-antigravity-termux.sh --version
+RAVA_AGY_REMOTE_AUTH=1 ./scripts/run-antigravity-termux.sh
+```
+
+`antigravity-termux.env` pins the Google archive URL, archive size/SHA-512,
+executable size/SHA-256, and every directly installed Termux package version.
+The installer removes its archive and staging directory, and it never starts
+login or reads credentials. The runner uses private resolver mounts and the
+packaged CA bundle. It calls the glibc loader directly to preserve quoted
+arguments while leaving `agy` byte-for-byte unchanged. For headless use, follow
+Google's documented stream-JSON protocol and keep stdout separate from stderr.
+The FAQ/headless policy ambiguity and full device evidence are recorded in
+`GEMINI_AUTH.md`.
 
 ## Current boundary
 
@@ -105,6 +132,8 @@ The Codex app-server also completes JSON-RPC initialization directly from the
 APK's `nativeLibraryDir` without a Termux startup lock. Its authentication,
 conversation, command-tool, and sandbox paths remain separate gates.
 Gemini's published bundle excludes optional native PTY/keyring packages, which is
-sufficient for the verified version probe. Browser sign-in/callback handling,
-credential persistence, a real model response, streaming/error schema, and
-cancellation remain unverified. Clipboard calls also need a native Android bridge.
+sufficient for the verified version probe. Its personal OAuth service is retired.
+The optional Termux Antigravity fallback separately passes official OAuth, model
+listing, one streamed real response, and process-restart resume on the phone.
+Rava-to-Termux IPC, cancellation, refresh/logout, and network-loss handling remain
+unverified. Clipboard calls also need a native Android bridge.

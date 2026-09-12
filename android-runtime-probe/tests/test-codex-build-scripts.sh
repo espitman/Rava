@@ -13,6 +13,7 @@ source "$probe_dir/codex-versions.env"
 [[ "$CODEX_GIT_COMMIT" =~ ^[0-9a-f]{40}$ ]]
 [[ "$CODEX_RELEASE_ARCHIVE_SHA256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$CODEX_RELEASE_BINARY_SHA256" =~ ^[0-9a-f]{64}$ ]]
+[[ "$CODEX_ANDROID_PATCHED_SHA256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$CODEX_RELEASE_SIGSTORE_SHA256" =~ ^[0-9a-f]{64}$ ]]
 [[ "$CODEX_RUST_TARGET" == aarch64-linux-android ]]
 [[ "$CODEX_ANDROID_ABI" == arm64-v8a ]]
@@ -25,10 +26,24 @@ sh -n "$build_script" "$verify_script" "$fetch_script"
 
 grep -Fq 'cosign verify-blob' "$fetch_script"
 grep -Fq 'CODEX_RELEASE_BINARY_SHA256' "$fetch_script"
+grep -Fq "'/etc/resolv.conf' 'resolv.conf' --count 2 --nul-pad" "$fetch_script"
+grep -Fq 'CODEX_ANDROID_PATCHED_SHA256' "$fetch_script"
+
+patch_fixture=$(mktemp "${TMPDIR:-/tmp}/rava-codex-resolver.XXXXXX")
+printf 'a/etc/resolv.confb/etc/resolv.confc' >"$patch_fixture"
+python3 "$probe_dir/scripts/patch-fixed-string.py" "$patch_fixture" \
+    '/etc/resolv.conf' 'resolv.conf' --count 2 --nul-pad >/dev/null
+python3 - "$patch_fixture" <<'PY'
+from pathlib import Path
+import sys
+
+data = Path(sys.argv[1]).read_bytes()
+assert data == b"aresolv.conf\0\0\0\0\0bresolv.conf\0\0\0\0\0c"
+PY
 
 preflight_output=$(mktemp "${TMPDIR:-/tmp}/rava-codex-preflight.XXXXXX")
 verify_output=$(mktemp "${TMPDIR:-/tmp}/rava-codex-verify.XXXXXX")
-trap 'rm -f "$preflight_output" "$verify_output"' EXIT
+trap 'rm -f "$preflight_output" "$verify_output" "$patch_fixture"' EXIT
 
 set +e
 RAVA_CODEX_MIN_FREE_KIB=999999999999 "$build_script" >"$preflight_output" 2>&1

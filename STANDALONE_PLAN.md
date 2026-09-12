@@ -1,7 +1,10 @@
 # Rava Standalone Android Implementation Plan
 
-Status: standalone Android runtime startup is proven; provider authentication and
-conversation flows remain unverified.
+Status: the embedded Codex runtime and its authenticated conversation flow are
+proven on the physical Android device. Gemini CLI personal-account access is
+retired; the approved replacement is Google's unmodified Antigravity CLI running
+inside official Termux. Its login, model listing, first turn, and resumed second
+turn are proven. Rava service integration remains in progress.
 
 ## Decision and scope
 
@@ -9,18 +12,20 @@ Keep this repository. Reuse the Android chat UI, Vazirmatn font, RTL behavior,
 bottom navigation, and archive where practical. Preserve the existing web-based
 implementation as a migration reference until the replacement works.
 
-The target is one APK containing:
+The target is one Rava APK plus the official Termux app for the Google provider:
 
-- An Android-compatible Node.js runtime and Gemini CLI.
 - An Android-compatible Codex app-server executable and required dependencies.
+- Google's unmodified ARM64 Antigravity CLI installed in Termux by Rava's pinned,
+  checksum-verifying setup flow.
 - Native account setup, chat, model selection, and conversation history.
 - A local integration interface for the owner's other Android applications.
 
-The installed app must not require Termux, Termux:X11, a separate server,
-browser automation, copied website cookies, or a user-supplied paid API key.
-A system browser may open for the provider's supported sign-in flow. Internet
-access and eligible provider accounts remain necessary: models run remotely.
-Usage is subject to Gemini CLI and Codex quotas, not unlimited website access.
+The Codex provider is standalone inside Rava. The Google provider requires
+official Termux but does not require Termux:X11, a separate server, browser
+automation, copied website cookies, or a user-supplied paid API key. A system
+browser may open for supported sign-in flows. Internet access, the user's VPN
+where Google connectivity requires it, and eligible provider accounts remain
+necessary: models run remotely. Usage is subject to Antigravity and Codex quotas.
 
 This document supersedes PLAN.md for the new implementation. PLAN.md describes
 the legacy engine and remains a historical record.
@@ -42,6 +47,18 @@ the legacy engine and remains a historical record.
   Copying an executable into filesDir and calling chmod is not the deployment plan.
 - CLI software being official does not make our Android port officially supported
   or guarantee account availability. Keep provider authentication and limits intact.
+- Google ended Gemini CLI Login with Google access for individual, Google AI Pro,
+  and Google AI Ultra accounts on 2026-06-18. Stable `0.59.0` and preview
+  `0.60.0-preview.0` use the same personal OAuth and Code Assist setup path, so a
+  version bump does not restore this entitlement.
+- Google's replacement is Antigravity CLI. Its official FAQ warns that access
+  through third-party software, tools, or services can lead to account suspension
+  or termination, while its official headless guide explicitly documents an
+  application driving the unmodified `agy` process through stdin/stdout. After an
+  Astra risk review, the owner approved personal-use testing within that narrow
+  boundary. Android plus Termux is not explicitly covered, so this is not treated
+  as zero risk. Never inspect/export tokens, call private endpoints, alter the
+  binary/client identity, or bypass quota and safety controls.
 
 ## Phase 0 — Preserve the existing project
 
@@ -112,21 +129,24 @@ or push the snapshot automatically as part of this plan.
   - نتیجه: Codex app-server `0.154.0` از `nativeLibraryDir` و UID اپ روی Android
     14/arm64 اجرا شد، پاسخ معتبر `initialize` داد و با کد صفر خاتمه یافت؛ خطای
     startup-lock تروموکس بازتولید نشد.
-- [ ] Check native ELF and APK alignment for applicable 4 KB/16 KB devices and
+- [x] Check native ELF and APK alignment for applicable 4 KB/16 KB devices and
   verify operation under the intended modern target SDK.
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent`، `llvm-readelf`، `zipalign`، `apksigner` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: ABI و ELFها، امضای v2، هم‌ترازی APK برای 16 KB و اجرای واقعی روی
+    Android 14/API 34 بررسی شد؛ APK نهایی probe با اندازهٔ 218,479,045 بایت نصب شد.
 
-Gate: both runtimes start from inside the APK on a real phone without Termux,
-root, an external runtime, or downloading executable code after installation.
-Passing a desktop or Termux test does not satisfy this gate.
+Gate: the embedded Codex runtime starts from inside the APK on a real phone
+without root or downloaded executable code. The Google gate is tracked separately
+in Phase 2 because its supported replacement now intentionally runs in Termux.
 
 If a runtime fails, produce a concrete blocker and a bounded porting experiment.
 Do not silently replace it with a paid API, server, or Termux dependency.
 
-## Phase 2 — Prove Gemini sign-in and conversation flow
+## Phase 2 — Prove Google provider sign-in and conversation flow
 
-- [ ] Bundle the pinned Gemini CLI and production dependencies during the build.
-  Audit native modules such as PTY and credential storage; adapt optional features
-  only where their absence is explicitly supported and tested.
+- [ ] Install the pinned Antigravity CLI and exact Termux compatibility packages
+  through a checksum-verifying, repeatable Rava setup flow.
 - [ ] Run the official Google sign-in flow using the system browser. Verify callback
   delivery, cancellation, and re-login without extracting website cookies or
   impersonating another OAuth client.
@@ -140,17 +160,56 @@ Do not silently replace it with a paid API, server, or Termux dependency.
   logout, and loss of connectivity. Record available session-management commands.
 
 Gate: sign in, ask, receive a complete response, continue, restart, and continue
-again entirely through the APK. Record the actual tested versions and limitations.
+again through Rava's authenticated Termux service integration. Record the actual
+tested versions and limitations.
+
+Current blocker: the consumer Gemini CLI service is retired. With explicit
+personal-use approval, Termux now runs Google's unmodified arm64 Antigravity CLI
+`1.2.2` through `glibc-runner`: the published archive digest, binary digest,
+`--version`, and `--help` pass. Local OAuth crashes under Android seccomp when
+Go's desktop browser lookup calls `faccessat2`, but Google's documented Remote
+SSH mode avoids that path. A second DNS issue was isolated to Go's lookup of the
+absent Android `/etc/resolv.conf`; official Termux `proot` plus private
+hosts/resolver mounts fixed a bounded unauthenticated startup without modifying
+`agy`. With the owner's VPN connected, a fresh SSH-mode OAuth completed. The
+same unmodified binary then listed 14 models, returned exact Persian text from
+`gemini-3.8-flash-low` through documented stream JSON with exit 0 and no tool
+events, and resumed the returned conversation ID in a new process for a second
+exact response with `num_turns: 2`. Pinned install/verify and quoted-argument
+runner scripts are retained in `android-runtime-probe`. Rava-to-Termux service
+IPC, cancellation, refresh/logout, and network-loss handling remain unverified.
+This phase remains unchecked because the APK gate is not met, and the documented
+policy ambiguity remains disclosed.
 
 ## Phase 3 — Prove Codex sign-in and conversation flow
 
-- [ ] Implement the documented app-server initialization and request correlation,
+- [x] Implement the documented app-server initialization and request correlation,
   notifications, errors, and process-exit handling using the pinned protocol schema.
-- [ ] Use app-server-managed ChatGPT sign-in. Prefer the documented device-code
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent`، `Gradle` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: schema نسخهٔ `0.154.0` با تست واحد و نشست واقعی Android برای
+    `initialize`، device-code، correlation و cancel رسمی تأیید شد؛ stdout پروتکل
+    از stderr تشخیصی جدا است.
+- [x] Use app-server-managed ChatGPT sign-in. Prefer the documented device-code
   flow where available; open the supplied verification URL in the system browser.
-- [ ] Fetch account state and available models, then create a thread and send a turn.
-- [ ] Render assistant text deltas and completion/errors. Distinguish assistant text
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: device-code رسمی در UI نمایش داده شد، ورود کاربر کامل شد و
+    `account/read` پس از force-stop همچنان authenticated بود؛ هیچ API key یا
+    cookie مرورگر استخراج نشد.
+- [x] Fetch account state and available models, then create a thread and send a turn.
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent`، `Gradle` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: `model/list`، `thread/start` و `turn/start` روی Android واقعی اجرا
+    شدند؛ پاسخ نهایی دقیقاً با `سلام راوا` تطبیق داشت و همان thread پس از
+    restart با `thread/resume` ادامه یافت.
+- [x] Render assistant text deltas and completion/errors. Distinguish assistant text
   from tool execution, reasoning events, and server diagnostics.
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent`، `JUnit` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: delta و پیام نهایی authoritative در callbackهای جدا پردازش شدند؛
+    completion/error، reasoning/tool item و stderr با تست schema از متن دستیار
+    تفکیک شدند و پاسخ واقعی دستگاه match شد.
 - [ ] Verify continuation, restart/resume, cancellation, expired authentication,
   logout, and quota errors using a real account.
 - [ ] Restrict the chat-only profile's tool access. Verify filesystem and command
@@ -184,7 +243,7 @@ an embedded Python requirement by assuming its HTTP implementation must be reuse
 
 ## Phase 5 — Migrate the Android UI and archive
 
-- [ ] Replace the Termux setup steps with runtime readiness, Google sign-in,
+- [ ] Replace the legacy Termux/X11 setup with bounded Antigravity readiness, Google sign-in,
   ChatGPT/Codex sign-in, account status, and actionable recovery states.
 - [ ] Preserve English UI, compact bottom navigation, Persian font/RTL support,
   bubble styling, waiting dots, and archive empty states.
@@ -202,8 +261,9 @@ an embedded Python requirement by assuming its HTTP implementation must be reuse
 
 ## Phase 6 — Validate and retire the legacy stack
 
-- [ ] Test a clean installation and both login flows on a physical device with
-  Termux absent or disabled. Verify that no com.termux paths or intents are used.
+- [ ] Test a clean installation and both login flows on a physical device. Verify
+  Codex with Termux absent or disabled, and verify the Google provider using only
+  the documented Termux RunCommandService integration.
 - [ ] Test an upgrade with existing archive data and verify no silent data loss.
 - [ ] Test both providers: model choice, multi-turn chat, concurrent client access,
   cancellation, network loss, process death, re-login, and quota exhaustion.
@@ -235,6 +295,9 @@ provider gates pass.
 - [Gemini CLI installation requirements](https://geminicli.com/docs/get-started/installation/)
 - [Gemini CLI authentication](https://geminicli.com/docs/get-started/authentication/)
 - [Gemini CLI headless mode](https://geminicli.com/docs/cli/headless/)
+- [Gemini Code Assist consumer-account deprecation](https://developers.google.com/gemini-code-assist/docs/deprecations/code-assist-individuals)
+- [Antigravity third-party access policy](https://www.antigravity.google/docs/faq/)
+- [Antigravity CLI headless mode](https://antigravity.google/docs/cli/headless/)
 - [Node Android build instructions](https://github.com/nodejs/node/blob/main/BUILDING.md#android)
 - [Node.js Mobile releases](https://github.com/nodejs-mobile/nodejs-mobile/releases)
 - [Codex app-server protocol and authentication](https://developers.openai.com/codex/app-server)
