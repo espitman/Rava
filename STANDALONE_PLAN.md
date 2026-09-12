@@ -51,8 +51,11 @@ the legacy engine and remains a historical record.
 - [x] Create a dedicated implementation branch for the standalone migration.
   - مدل: `نامشخص (خانواده GPT-5؛ شناسه دقیق runtime گزارش نشده)`؛ ابزار: `Codex` و `git`
   - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
-- [ ] Record the current APK version, application ID, signing configuration, and
+- [x] Record the current APK version, application ID, signing configuration, and
   archive schema so upgrades can preserve existing user data.
+  - مدل: `نامشخص (خانواده GPT-5؛ شناسه دقیق runtime گزارش نشده)`؛ ابزار: `Codex`، `Gradle` و `pytest`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: `docs/LEGACY_BASELINE.md`؛ تست Python برابر ۲۱ مورد و build/lint اندروید موفق بود.
 - [ ] Add a separate runtime-probe module/application ID. Keep the current Rava
   installation usable while feasibility is tested.
 
