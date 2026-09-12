@@ -2,6 +2,7 @@ package ir.rava.installer;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.BroadcastReceiver;
 import android.content.ClipData;
 import android.content.ClipboardManager;
@@ -28,6 +29,7 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageButton;
@@ -52,14 +54,19 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Date;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @SuppressLint({"SetTextI18n", "UnspecifiedRegisterReceiverFlag"})
 public class MainActivity extends Activity {
     private static final int RUN_PERMISSION_REQUEST = 41;
+    private static final String CHAT_ARCHIVE_PREFS = "chat_archive";
+    private static final String CHAT_ARCHIVE_KEY = "chats";
     private static final String ENABLE_EXTERNAL_APPS =
             "mkdir -p ~/.termux && (grep -q '^allow-external-apps=true$' ~/.termux/termux.properties 2>/dev/null || echo 'allow-external-apps=true' >> ~/.termux/termux.properties) && termux-reload-settings";
     private static final Pattern MARKDOWN_IMAGE = Pattern.compile(
@@ -78,6 +85,9 @@ public class MainActivity extends Activity {
     private TextView chatStatus;
     private ImageButton sendButton;
     private String conversationId;
+    private String currentChatId;
+    private String currentModel;
+    private JSONArray currentMessages = new JSONArray();
     private Typeface chatTypeface;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private final BroadcastReceiver resultReceiver = new BroadcastReceiver() {
@@ -256,6 +266,10 @@ public class MainActivity extends Activity {
         header.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
         ImageButton newChat = iconButton(R.drawable.ic_new_chat, "New chat", Color.rgb(32, 30, 34));
         newChat.setOnClickListener(view -> resetChat());
+        ImageButton archive = iconButton(
+                android.R.drawable.ic_menu_recent_history, "Chat archive", Color.rgb(32, 30, 34));
+        archive.setOnClickListener(view -> showChatArchive());
+        header.addView(archive, new LinearLayout.LayoutParams(dp(48), dp(48)));
         header.addView(newChat, new LinearLayout.LayoutParams(dp(48), dp(48)));
         content.addView(header);
 
@@ -452,6 +466,9 @@ public class MainActivity extends Activity {
         }
 
         String model = selected.toString();
+        ensureCurrentChat(model);
+        appendCurrentMessage("user", message);
+        saveCurrentChat();
         addMessageBubble("You", message, true);
         TextView answerBubble = addMessageBubble(model, "...", false);
         Runnable typingAnimation = startTypingAnimation(answerBubble);
@@ -467,7 +484,13 @@ public class MainActivity extends Activity {
                 body.put("model", model);
                 body.put("stream", true);
                 JSONArray messages = new JSONArray();
-                messages.put(new JSONObject().put("role", "user").put("content", message));
+                if (conversationId == null) {
+                    for (int index = 0; index < currentMessages.length(); index++) {
+                        messages.put(new JSONObject(currentMessages.getJSONObject(index).toString()));
+                    }
+                } else {
+                    messages.put(new JSONObject().put("role", "user").put("content", message));
+                }
                 body.put("messages", messages);
                 if (conversationId != null) body.put("conversation_id", conversationId);
 
@@ -479,6 +502,8 @@ public class MainActivity extends Activity {
                     } else {
                         renderRichAnswer(answerBubble, answer);
                     }
+                    appendCurrentMessage("assistant", answer);
+                    saveCurrentChat();
                     chatStatus.setText("Conversation active");
                     sendButton.setEnabled(true);
                     focusChatInput();
@@ -746,13 +771,244 @@ public class MainActivity extends Activity {
 
     private void resetChat() {
         conversationId = null;
+        currentChatId = null;
+        currentModel = null;
+        currentMessages = new JSONArray();
+        clearChatTranscript();
+        chatStatus.setText("New conversation ready");
+        focusChatInput();
+    }
+
+    private void clearChatTranscript() {
         chatMessages.removeAllViews();
         emptyChat = chatText("How can I help?", 24, true);
         emptyChat.setGravity(Gravity.CENTER);
         emptyChat.setTextColor(Color.rgb(55, 55, 55));
         chatMessages.addView(emptyChat, new LinearLayout.LayoutParams(-1, dp(180)));
-        chatStatus.setText("New conversation ready");
-        focusChatInput();
+    }
+
+    private void ensureCurrentChat(String model) {
+        if (currentChatId == null) {
+            currentChatId = UUID.randomUUID().toString();
+            currentModel = model;
+            currentMessages = new JSONArray();
+        }
+    }
+
+    private void appendCurrentMessage(String role, String content) {
+        try {
+            currentMessages.put(new JSONObject()
+                    .put("role", role)
+                    .put("content", content));
+        } catch (Exception exception) {
+            Log.e("RavaArchive", "Could not append chat message", exception);
+        }
+    }
+
+    private JSONArray readChatArchive() {
+        String saved = getSharedPreferences(CHAT_ARCHIVE_PREFS, MODE_PRIVATE)
+                .getString(CHAT_ARCHIVE_KEY, "[]");
+        try {
+            return new JSONArray(saved);
+        } catch (Exception exception) {
+            Log.e("RavaArchive", "Could not read chat archive", exception);
+            return new JSONArray();
+        }
+    }
+
+    private void saveCurrentChat() {
+        if (currentChatId == null || currentMessages.length() == 0) return;
+        try {
+            JSONObject chat = new JSONObject()
+                    .put("id", currentChatId)
+                    .put("title", currentChatTitle())
+                    .put("model", currentModel == null ? "" : currentModel)
+                    .put("conversation_id", conversationId == null ? "" : conversationId)
+                    .put("updated_at", System.currentTimeMillis())
+                    .put("messages", new JSONArray(currentMessages.toString()));
+            JSONArray existing = readChatArchive();
+            JSONArray updated = new JSONArray().put(chat);
+            for (int index = 0; index < existing.length(); index++) {
+                JSONObject item = existing.optJSONObject(index);
+                if (item != null && !currentChatId.equals(item.optString("id"))) updated.put(item);
+            }
+            getSharedPreferences(CHAT_ARCHIVE_PREFS, MODE_PRIVATE)
+                    .edit().putString(CHAT_ARCHIVE_KEY, updated.toString()).apply();
+        } catch (Exception exception) {
+            Log.e("RavaArchive", "Could not save chat", exception);
+        }
+    }
+
+    private String currentChatTitle() {
+        for (int index = 0; index < currentMessages.length(); index++) {
+            JSONObject item = currentMessages.optJSONObject(index);
+            if (item != null && "user".equals(item.optString("role"))) {
+                String text = item.optString("content").replace('\n', ' ').trim();
+                return text.length() > 42 ? text.substring(0, 42) + "…" : text;
+            }
+        }
+        return "Untitled chat";
+    }
+
+    private void showChatArchive() {
+        ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
+                .hideSoftInputFromWindow(chatInput.getWindowToken(), 0);
+        JSONArray chats = readChatArchive();
+        if (chats.length() == 0) {
+            Toast.makeText(this, "No archived chats yet.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(14), dp(4), dp(14), dp(8));
+
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        Button selectAll = new Button(this);
+        selectAll.setText("Select all");
+        selectAll.setAllCaps(false);
+        selectAll.setTypeface(chatTypeface);
+        Button deleteSelected = new Button(this);
+        deleteSelected.setText("Delete selected");
+        deleteSelected.setAllCaps(false);
+        deleteSelected.setTypeface(chatTypeface);
+        deleteSelected.setEnabled(false);
+        actions.addView(selectAll, new LinearLayout.LayoutParams(0, dp(48), 1));
+        actions.addView(deleteSelected, new LinearLayout.LayoutParams(0, dp(48), 1));
+        content.addView(actions);
+
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        List<CheckBox> checkBoxes = new ArrayList<>();
+        Set<String> selectedIds = new HashSet<>();
+        AlertDialog[] dialogRef = new AlertDialog[1];
+
+        for (int index = 0; index < chats.length(); index++) {
+            JSONObject chat = chats.optJSONObject(index);
+            if (chat == null) continue;
+            String chatId = chat.optString("id");
+
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(2), dp(8), dp(2), dp(8));
+
+            CheckBox checkBox = new CheckBox(this);
+            checkBox.setContentDescription("Select " + chat.optString("title"));
+            checkBox.setOnCheckedChangeListener((button, checked) -> {
+                if (checked) selectedIds.add(chatId); else selectedIds.remove(chatId);
+                deleteSelected.setEnabled(!selectedIds.isEmpty());
+                selectAll.setText(selectedIds.size() == checkBoxes.size()
+                        ? "Clear selection" : "Select all");
+            });
+            checkBoxes.add(checkBox);
+            row.addView(checkBox, new LinearLayout.LayoutParams(dp(48), dp(48)));
+
+            LinearLayout labels = new LinearLayout(this);
+            labels.setOrientation(LinearLayout.VERTICAL);
+            labels.setPadding(dp(4), dp(4), dp(8), dp(4));
+            TextView title = chatText(chat.optString("title", "Untitled chat"), 15, true);
+            TextView detail = chatText(chat.optString("model"), 11, false);
+            detail.setTextColor(Color.rgb(105, 105, 105));
+            labels.addView(title);
+            labels.addView(detail);
+            labels.setOnClickListener(view -> {
+                dialogRef[0].dismiss();
+                openArchivedChat(chat);
+            });
+            row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
+
+            ImageButton delete = iconButton(
+                    android.R.drawable.ic_menu_delete, "Delete chat", Color.rgb(176, 0, 32));
+            delete.setOnClickListener(view -> confirmDeleteChats(
+                    java.util.Collections.singleton(chatId), dialogRef[0]));
+            row.addView(delete, new LinearLayout.LayoutParams(dp(48), dp(48)));
+            list.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        }
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(list);
+        content.addView(scroll, new LinearLayout.LayoutParams(-1, dp(420)));
+
+        selectAll.setOnClickListener(view -> {
+            boolean shouldSelect = selectedIds.size() != checkBoxes.size();
+            for (CheckBox checkBox : checkBoxes) checkBox.setChecked(shouldSelect);
+            selectAll.setText(shouldSelect ? "Clear selection" : "Select all");
+        });
+        deleteSelected.setOnClickListener(view -> {
+            if (!selectedIds.isEmpty()) {
+                confirmDeleteChats(new HashSet<>(selectedIds), dialogRef[0]);
+            }
+        });
+
+        dialogRef[0] = new AlertDialog.Builder(this)
+                .setTitle("Chat archive")
+                .setView(content)
+                .setNegativeButton("Close", null)
+                .create();
+        dialogRef[0].show();
+    }
+
+    private void openArchivedChat(JSONObject chat) {
+        try {
+            currentChatId = chat.getString("id");
+            currentModel = chat.optString("model");
+            conversationId = chat.optString("conversation_id");
+            if (conversationId.isEmpty()) conversationId = null;
+            currentMessages = new JSONArray(chat.getJSONArray("messages").toString());
+            clearChatTranscript();
+            for (int index = 0; index < currentMessages.length(); index++) {
+                JSONObject message = currentMessages.getJSONObject(index);
+                String role = message.getString("role");
+                String text = message.getString("content");
+                boolean user = "user".equals(role);
+                TextView bubble = addMessageBubble(user ? "You" : currentModel, text, user);
+                if (!user) renderRichAnswer(bubble, text);
+            }
+            selectArchivedModel(currentModel);
+            chatStatus.setText("Archived conversation");
+            focusChatInput();
+            scrollChatToBottom();
+        } catch (Exception exception) {
+            Log.e("RavaArchive", "Could not open archived chat", exception);
+            Toast.makeText(this, "Could not open this chat.", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void selectArchivedModel(String model) {
+        for (int index = 0; index < modelAdapter.getCount(); index++) {
+            if (model.equals(modelAdapter.getItem(index))) {
+                modelSpinner.setSelection(index);
+                return;
+            }
+        }
+    }
+
+    private void confirmDeleteChats(Set<String> ids, AlertDialog archiveDialog) {
+        int count = ids.size();
+        new AlertDialog.Builder(this)
+                .setTitle(count == 1 ? "Delete this chat?" : "Delete " + count + " chats?")
+                .setMessage("This cannot be undone.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Delete", (dialog, which) -> {
+                    deleteArchivedChats(ids);
+                    archiveDialog.dismiss();
+                    if (readChatArchive().length() > 0) showChatArchive();
+                })
+                .show();
+    }
+
+    private void deleteArchivedChats(Set<String> ids) {
+        JSONArray chats = readChatArchive();
+        JSONArray kept = new JSONArray();
+        for (int index = 0; index < chats.length(); index++) {
+            JSONObject chat = chats.optJSONObject(index);
+            if (chat != null && !ids.contains(chat.optString("id"))) kept.put(chat);
+        }
+        getSharedPreferences(CHAT_ARCHIVE_PREFS, MODE_PRIVATE)
+                .edit().putString(CHAT_ARCHIVE_KEY, kept.toString()).apply();
+        if (currentChatId != null && ids.contains(currentChatId)) resetChat();
     }
 
     private void focusChatInput() {

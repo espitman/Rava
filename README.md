@@ -26,6 +26,7 @@ and health checks.
 - Separate Chromium profiles for ChatGPT and Gemini
 - Graphical Android setup companion
 - Built-in Android test chat with model selection and conversation continuation
+- Persistent on-device chat archive with reopen, single-delete, and multi-select deletion
 - Inline response images cached locally by the engine and rendered in Android chat
 - Automatic routing of ChatGPT conversations into a dedicated `Rava` project
 - Temporary Gemini conversations so Rava does not add entries to Gemini history
@@ -89,7 +90,9 @@ The graphical setup app performs these steps:
 
 After startup, choose **Chat** in the bottom navigation, reload the model list, select a
 model, and send a message. The test client continues the same conversation
-until **New chat** is tapped.
+until **New chat** is tapped. Use the history button in the chat header to reopen
+saved conversations. Archive entries can be deleted individually or selected in
+bulk; every deletion requires confirmation.
 
 Build the app from source:
 
