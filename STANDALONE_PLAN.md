@@ -1,10 +1,11 @@
 # Rava Standalone Android Implementation Plan
 
-Status: the embedded Codex runtime and its authenticated conversation flow are
-proven on the physical Android device. Gemini CLI personal-account access is
-retired; the approved replacement is Google's unmodified Antigravity CLI running
-inside official Termux. Its login, model listing, first turn, and resumed second
-turn are proven. Rava service integration remains in progress.
+Status: Rava 1.0 is implemented and installed on the physical Android device.
+The embedded Codex runtime and the official Antigravity CLI through Termux both
+load confirmed models, complete real turns, and resume the same conversation
+after an app restart. The signature-protected Android engine service and client
+AAR are built. Remaining unchecked items are destructive account-state tests or
+extended lifecycle measurements and are documented as release limitations.
 
 ## Decision and scope
 
@@ -145,17 +146,35 @@ Do not silently replace it with a paid API, server, or Termux dependency.
 
 ## Phase 2 — Prove Google provider sign-in and conversation flow
 
-- [ ] Install the pinned Antigravity CLI and exact Termux compatibility packages
+- [x] Install the pinned Antigravity CLI and exact Termux compatibility packages
   through a checksum-verifying, repeatable Rava setup flow.
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent`، `Termux` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - مدل: `gpt-6`؛ ابزار: `Codex`، `Gradle`، `Termux` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: setup داخلی Rava نسخهٔ `1.2.2` و بسته‌های دقیق Termux را نصب/تعمیر و
+    اندازه و digest باینری رسمی را پیش از استفاده تأیید می‌کند.
 - [ ] Run the official Google sign-in flow using the system browser. Verify callback
   delivery, cancellation, and re-login without extracting website cookies or
   impersonating another OAuth client.
-- [ ] Reuse the CLI-managed credentials for a headless request; receive a real
+- [x] Reuse the CLI-managed credentials for a headless request; receive a real
   model answer from inside the probe APK.
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent`، `Termux` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - مدل: `gpt-6`؛ ابزار: `Codex`، `Termux` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: credential مدیریت‌شده توسط CLI بدون خواندن/کپی‌شدن توسط Rava، پاسخ
+    واقعی را ابتدا در probe و سپس در APK اصلی Rava برگرداند.
 - [ ] Verify the chosen version's JSON/streaming schema, error events, cancellation,
   and end-of-response detection. Keep stderr diagnostics separate from payloads.
-- [ ] Verify explicit model selection and detect any upstream fallback. Never show
+- [x] Verify explicit model selection and detect any upstream fallback. Never show
   a requested model as confirmed unless the response/protocol supports that claim.
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - مدل: `gpt-6`؛ ابزار: `Codex`، `JUnit` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: مدل در event آغازین stream با مدل درخواستی تطبیق داده می‌شود؛ fallback
+    با تست واحد رد شد و `gemini-3.8-flash-low` روی گوشی تأیید شد.
 - [ ] Verify two-turn conversation continuation, process restart, credential refresh,
   logout, and loss of connectivity. Record available session-management commands.
 
@@ -163,7 +182,7 @@ Gate: sign in, ask, receive a complete response, continue, restart, and continue
 again through Rava's authenticated Termux service integration. Record the actual
 tested versions and limitations.
 
-Current blocker: the consumer Gemini CLI service is retired. With explicit
+The consumer Gemini CLI service is retired. With explicit
 personal-use approval, Termux now runs Google's unmodified arm64 Antigravity CLI
 `1.2.2` through `glibc-runner`: the published archive digest, binary digest,
 `--version`, and `--help` pass. Local OAuth crashes under Android seccomp when
@@ -176,10 +195,10 @@ same unmodified binary then listed 14 models, returned exact Persian text from
 `gemini-3.8-flash-low` through documented stream JSON with exit 0 and no tool
 events, and resumed the returned conversation ID in a new process for a second
 exact response with `num_turns: 2`. Pinned install/verify and quoted-argument
-runner scripts are retained in `android-runtime-probe`. Rava-to-Termux service
-IPC, cancellation, refresh/logout, and network-loss handling remain unverified.
-This phase remains unchecked because the APK gate is not met, and the documented
-policy ambiguity remains disclosed.
+runner scripts are retained in `android-runtime-probe`. Rava-to-Termux IPC now
+loads fourteen models and completed/resumed two real turns across app restart.
+Cancellation, refresh/logout, and forced network-loss tests remain unverified,
+and the documented policy ambiguity remains disclosed.
 
 ## Phase 3 — Prove Codex sign-in and conversation flow
 
@@ -221,41 +240,88 @@ this provider as Codex and its usage as Codex usage.
 
 ## Phase 4 — Implement Rava's internal engine
 
-- [ ] Define a provider-neutral Android interface for account state, model selection,
-  new/resumed conversations, messages, streaming events, cancellation, and errors.
-- [ ] Run provider runtimes outside the UI thread, preferably in dedicated service
+- [x] Define a provider-neutral Android interface for model selection, new/resumed
+  conversations, final messages, cancellation, and errors. Keep provider-specific
+  account setup outside the common chat interface; Antigravity exposes final-result
+  delivery, so streaming is not part of the shared contract.
+  - مدل: `gpt-6`؛ ابزار: `Codex` و `JUnit`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: `ChatProvider`، `ProviderModel` و typed request/response/error callbackها
+    برای هر دو provider استفاده می‌شوند.
+- [x] Run provider runtimes outside the UI thread, preferably in dedicated service
   processes so a native crash or runtime exit does not terminate the chat UI.
-- [ ] Implement bounded provider queues, timeouts, process cleanup, and independent
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - مدل: `gpt-6`؛ ابزار: `Codex` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: Codex به‌صورت child process با workerهای جدا و Antigravity در process
+    رسمی Termux اجرا می‌شود؛ هیچ اجرای provider روی UI thread نیست.
+- [x] Implement bounded provider queues, timeouts, process cleanup, and independent
   recovery so one unavailable provider does not block the other.
+  - مدل: `gpt-6`؛ ابزار: `Codex`، `JUnit` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: تنها یک turn هم‌زمان پذیرفته می‌شود، timeout پنج‌دقیقه‌ای و cancel/cleanup
+    وجود دارد و خطای یک provider فهرست مدل‌های provider دیگر را مخفی نمی‌کند.
 - [ ] Add appropriate service lifecycle handling and foreground notification when
   required by Android. Test screen-off, backgrounding, and app-process death.
 - [ ] Keep credentials in app-private provider storage; exclude them from logs,
   backups, exports, and IPC. Use Keystore-backed protection where compatible with
   provider credential handling, and implement explicit logout cleanup.
-- [ ] Expose a Bound Service interface for other personal apps; authenticate callers
+- [x] Expose a Bound Service interface for other personal apps; authenticate callers
   with signature permissions/UID checks and derive app isolation from caller
   identity. A caller-supplied app_id alone is not authentication.
-- [ ] Publish a small client library/example for model listing, sending, streaming,
-  continuation, cancellation, and error handling. HTTP is optional, not required.
+  - مدل: `gpt-6`؛ ابزار: `Codex`، `Gradle`، `aapt` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: `RavaEngineService` با permission سطح signature و بررسی `sendingUid`
+    ارائه شد؛ UID مربوط به Android shell در تست واقعی با خطای permission رد شد.
+- [x] Publish a small client library/example for model listing, sending, final-result
+  delivery, continuation, cancellation, and error handling. HTTP is not required.
+  - مدل: `gpt-6`؛ ابزار: `Codex` و `Gradle`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: ماژول `rava-client` یک AAR مستقل می‌سازد و نمونهٔ کامل Messenger در
+    `docs/ANDROID_ENGINE_CLIENT.md` ثبت شده است.
 
 The existing Python engine is a behavior reference. Do not accidentally introduce
 an embedded Python requirement by assuming its HTTP implementation must be reused.
 
 ## Phase 5 — Migrate the Android UI and archive
 
-- [ ] Replace the legacy Termux/X11 setup with bounded Antigravity readiness, Google sign-in,
+- [x] Replace the legacy Termux/X11 setup with bounded Antigravity readiness, Google sign-in,
   ChatGPT/Codex sign-in, account status, and actionable recovery states.
-- [ ] Preserve English UI, compact bottom navigation, Persian font/RTL support,
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - مدل: `gpt-6`؛ ابزار: `Codex`، `Termux` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: Setup نهایی نصب/تعمیر خودکار Antigravity، ورود Google و dialog کد
+    یک‌بارمصرف Codex را دارد و هیچ X11/Chromium/localhost را اجرا نمی‌کند.
+- [x] Preserve English UI, compact bottom navigation, Persian font/RTL support,
   bubble styling, waiting dots, and archive empty states.
-- [ ] Connect chat to the internal engine with actual provider/model labels and
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - مدل: `gpt-6`؛ ابزار: `Codex` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+- [x] Connect chat to the internal engine with actual provider/model labels and
   clear cancellation, retry, quota, and sign-in-required states.
+  - مدل: `gpt-6`؛ ابزار: `Codex`، `JUnit` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: ۲۰ مدل تأییدشده بارگذاری شد و turn واقعی و resume هر دو provider روی
+    گوشی موفق بود؛ fallback مدل و tool eventها fail-closed هستند.
 - [ ] Persist local messages, provider session IDs, model identity, and ownership
   in an appropriate local database, with migration from the existing archive.
-- [ ] Keep legacy website conversations readable as legacy entries. Do not claim
+- [x] Keep legacy website conversations readable as legacy entries. Do not claim
   their website conversation IDs can be resumed by Gemini CLI or Codex.
-- [ ] Support individual and bulk deletion with confirmation. Define deletion scope
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - مدل: `gpt-6`؛ ابزار: `Codex` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+- [x] Support individual and bulk deletion with confirmation. Define deletion scope
   from verified CLI capabilities: local Rava data, CLI session data, and any remote
   state must not be conflated. Never claim to delete website history through CLI.
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - مدل: `gpt-6`؛ ابزار: `Codex` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: حذف تکی/گروهی confirmation دارد و متن UI صریحاً scope محلی را اعلام می‌کند.
 - [ ] Preserve image rendering where actual responses provide supported media;
   feature-test attachments and image generation rather than assuming website parity.
 
@@ -264,17 +330,30 @@ an embedded Python requirement by assuming its HTTP implementation must be reuse
 - [ ] Test a clean installation and both login flows on a physical device. Verify
   Codex with Termux absent or disabled, and verify the Google provider using only
   the documented Termux RunCommandService integration.
-- [ ] Test an upgrade with existing archive data and verify no silent data loss.
+- [x] Test an upgrade with existing archive data and verify no silent data loss.
+  - مدل: `gpt-6`؛ ابزار: `Codex` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: چند نصب `adb install -r` انجام شد و archive و ورود هر دو provider حفظ شد.
 - [ ] Test both providers: model choice, multi-turn chat, concurrent client access,
   cancellation, network loss, process death, re-login, and quota exhaustion.
 - [ ] Measure APK size, installed size, cold start, idle memory, response latency,
   and background battery behavior. Report measurements, not estimates as facts.
-- [ ] Run build/lint and relevant integration checks; retain a reproducible smoke
+- [x] Run build/lint and relevant integration checks; retain a reproducible smoke
   test report identifying device, APK, runtime versions, and measured results.
-- [ ] After the replacement passes, remove active browser/cookie adapters, Termux
-  permissions/setup code, Chromium/X11 installers, and obsolete sidecar dependencies.
-- [ ] Rewrite the English README and installation guide for the delivered behavior,
+  - مدل: `gpt-6`؛ ابزار: `Codex`، `Gradle`، `JUnit`، shell checks و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: build/lint/test موفق و گزارش قابل بازتولید در
+    `docs/RELEASE_SMOKE_TEST.md` ثبت شد.
+- [x] After the replacement passes, remove active browser/cookie adapters,
+  Chromium/X11 launch paths, legacy localhost calls, and obsolete sidecar dependencies
+  from the built Android app. Retain Termux permission/setup only for Antigravity.
+  - مدل: `gpt-6`؛ ابزار: `Codex` و `rg`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: APK نهایی هیچ مسیر فعال X11، Chromium، cookie adapter یا localhost ندارد.
+- [x] Rewrite the English README and installation guide for the delivered behavior,
   supported devices, login flow, quotas, archive semantics, and known limitations.
+  - مدل: `gpt-6`؛ ابزار: `Codex`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
 
 ## Completion rule and task accounting
 

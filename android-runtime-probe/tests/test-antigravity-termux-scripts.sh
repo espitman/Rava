@@ -20,6 +20,11 @@ grep -Fq '"$agy_path" "$@"' "$runner_script"
 grep -Fq 'hosts:/etc/hosts' "$runner_script"
 grep -Fq 'resolv.conf:/etc/resolv.conf' "$runner_script"
 grep -Fq 'GODEBUG=${GODEBUG:-netdns=go+1}' "$runner_script"
+grep -Fq 'RAVA_AGY_CHAT_ONLY' "$runner_script"
+grep -Fq 'chat-settings.XXXXXX' "$runner_script"
+grep -Fq 'Installation repaired and verified' "$install_script"
+grep -Fq 'read_file(*)' "$install_script"
+grep -Fq 'command(*)' "$install_script"
 grep -Fq 'archive must contain only the antigravity executable' "$install_script"
 if grep -Eq 'dangerously-skip-permissions|copy.*token|cat.*credential' \
   "$install_script" "$runner_script"; then

@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "RavaInstaller"
 include(":app")
+include(":rava-client")

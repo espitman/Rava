@@ -1,20 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <permission
+        android:name="ir.rava.installer.permission.USE_ENGINE"
+        android:protectionLevel="signature" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
 
     <queries>
         <package android:name="com.termux" />
-        <package android:name="com.termux.x11" />
     </queries>
 
     <application
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="false"
         android:icon="@drawable/ic_launcher"
-        android:label="Rava Setup"
+        android:label="Rava"
         android:supportsRtl="true"
-        android:usesCleartextTraffic="true"
+        android:usesCleartextTraffic="false"
         android:theme="@style/AppTheme">
         <activity
             android:name=".MainActivity"
@@ -28,5 +32,13 @@
         <service
             android:name=".CommandResultService"
             android:exported="false" />
+        <service
+            android:name=".RavaEngineService"
+            android:exported="true"
+            android:permission="ir.rava.installer.permission.USE_ENGINE">
+            <intent-filter>
+                <action android:name="ir.rava.installer.action.BIND_ENGINE" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

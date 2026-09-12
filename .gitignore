@@ -10,6 +10,7 @@ cookies.txt
 android-installer/.gradle/
 android-installer/build/
 android-installer/app/build/
+android-installer/rava-client/build/
 android-installer/local.properties
 android-installer/app/src/main/assets/rava.tar.gz
 .*.log

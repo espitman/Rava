@@ -44,16 +44,14 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
-import java.io.BufferedReader;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Date;
 import java.util.List;
@@ -61,6 +59,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @SuppressLint({"SetTextI18n", "UnspecifiedRegisterReceiverFlag"})
 public class MainActivity extends Activity {
@@ -73,20 +72,21 @@ public class MainActivity extends Activity {
     private static final String ENABLE_EXTERNAL_APPS =
             "mkdir -p ~/.termux && (grep -q '^allow-external-apps=true$' ~/.termux/termux.properties 2>/dev/null || echo 'allow-external-apps=true' >> ~/.termux/termux.properties) && termux-reload-settings";
     private static final Pattern MARKDOWN_IMAGE = Pattern.compile(
-            "!\\[([^\\]]*)\\]\\(((?:https?://|/v1/media/)[^\\s)]+)\\)");
+            "!\\[([^\\]]*)\\]\\((https://[^\\s)]+)\\)");
 
     private TextView prerequisites;
     private TextView progress;
     private TextView output;
     private ProgressBar spinner;
     private Spinner modelSpinner;
-    private ArrayAdapter<String> modelAdapter;
+    private ArrayAdapter<ProviderModel> modelAdapter;
     private EditText chatInput;
     private LinearLayout chatMessages;
     private ScrollView chatScroll;
     private TextView emptyChat;
     private TextView chatStatus;
     private ImageButton sendButton;
+    private ImageButton cancelChatButton;
     private View setupPage;
     private View chatPage;
     private View archivePage;
@@ -99,6 +99,13 @@ public class MainActivity extends Activity {
     private String currentModel;
     private JSONArray currentMessages = new JSONArray();
     private Typeface chatTypeface;
+    private AntigravityProvider antigravityProvider;
+    private CodexProvider codexProvider;
+    private TextView codexAuthStatus;
+    private volatile ChatProvider activeChatProvider;
+    private TextView activeAnswerBubble;
+    private Runnable activeTypingAnimation;
+    private final AtomicInteger chatGeneration = new AtomicInteger();
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private final BroadcastReceiver resultReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
@@ -110,6 +117,8 @@ public class MainActivity extends Activity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         chatTypeface = getResources().getFont(R.font.vazirmatn_regular);
+        antigravityProvider = new AntigravityProvider(this);
+        codexProvider = new CodexProvider(this);
         setTitle("Rava Setup");
         setContentView(buildUi());
     }
@@ -131,6 +140,13 @@ public class MainActivity extends Activity {
     protected void onStop() {
         unregisterReceiver(resultReceiver);
         super.onStop();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (antigravityProvider != null) antigravityProvider.close();
+        if (codexProvider != null) codexProvider.close();
+        super.onDestroy();
     }
 
     private View buildUi() {
@@ -234,15 +250,32 @@ public class MainActivity extends Activity {
         section.setLetterSpacing(0.08f);
         content.addView(section, sectionGap());
 
-        addStep(content, "01", "Enable Termux access", "Copy the one-time security setting and run it in Termux.", "OPEN TERMUX", view -> prepareTermux());
-        addStep(content, "02", "Grant command permission", "Allow this setup app to send approved commands to Termux.", "GRANT", view -> requestRunPermission());
-        addStep(content, "03", "Test the connection", "Confirm that Termux accepts commands and returns results.", "TEST", view -> runCommand("Access test", "printf 'RAVA_TERMUX_READY\\n'", true));
-        addStep(content, "04", "Install or update Rava", "Deploy the bundled project and install Python, Chromium, and connectors.", "INSTALL", view -> installRava());
-        addStep(content, "05", "Sign in to ChatGPT", "Open the dedicated ChatGPT browser profile.", "SIGN IN", view -> openChatGptLogin());
-        addStep(content, "06", "Sign in to Gemini", "Open a separate browser profile for Gemini.", "SIGN IN", view -> openGeminiLogin());
-        addStep(content, "07", "Capture Gemini session", "Securely save the signed-in session inside Termux.", "CAPTURE", view -> runProjectCommand("Capture Gemini session", ".venv/bin/python scripts/capture-gemini-session.py"));
-        addStep(content, "08", "Start the engine", "Launch both browser connectors and the local Rava API.", "START", view -> runProjectCommand("Start Rava", "bash scripts/start-rava-stack.sh"));
-        addStep(content, "09", "Check status", "Verify providers and list the models available to local apps.", "CHECK", view -> runProjectCommand("Rava status", "curl -fsS http://127.0.0.1:8766/health && printf '\\n' && curl -fsS http://127.0.0.1:8766/v1/models"));
+        addStep(content, "01", "Install Termux", "Install the official Termux APK once. Android will ask you to approve the installation.", "OPEN PAGE", view -> launchPackage(TermuxBridge.TERMUX_PACKAGE, "https://github.com/termux/termux-app/releases"));
+        addStep(content, "02", "Enable Termux access", "Copy the one-time setting, paste it in Termux, and press Enter.", "OPEN TERMUX", view -> prepareTermux());
+        addStep(content, "03", "Grant command permission", "Allow Rava to send bounded commands to Termux.", "GRANT", view -> requestRunPermission());
+        addStep(content, "04", "Install Antigravity", "Rava verifies pinned hashes and installs Google's official ARM64 CLI and required Termux packages.", "INSTALL", view -> installAntigravity());
+        addStep(content, "05", "Sign in to Google", "A visible Termux session prints Google's URL and code. Open the URL, enter the code, then return.", "SIGN IN", view -> startAntigravityLogin());
+        addStep(content, "06", "Check Google models", "Verify the saved login and load the model list without reading credentials.", "CHECK", view -> loadModels());
+        addStep(content, "07", "ChatGPT / Codex", "Codex runs inside Rava. Use the account controls below.", "CHECK", view -> showMessage("Codex account controls are below."));
+
+        codexAuthStatus = text("Codex account has not been checked.", 14, false);
+        codexAuthStatus.setTextIsSelectable(true);
+        codexAuthStatus.setPadding(dp(14), dp(12), dp(14), dp(12));
+        codexAuthStatus.setBackground(rounded(Color.rgb(238, 234, 247), 16));
+        content.addView(codexAuthStatus, smallGap());
+        LinearLayout codexActions = new LinearLayout(this);
+        codexActions.setOrientation(LinearLayout.HORIZONTAL);
+        Button checkCodex = new Button(this);
+        checkCodex.setText("Check Codex");
+        checkCodex.setAllCaps(false);
+        checkCodex.setOnClickListener(view -> codexProvider.readAccount(codexAccountListener()));
+        Button signInCodex = new Button(this);
+        signInCodex.setText("Sign in");
+        signInCodex.setAllCaps(false);
+        signInCodex.setOnClickListener(view -> codexProvider.startLogin(codexAccountListener()));
+        codexActions.addView(checkCodex, new LinearLayout.LayoutParams(0, dp(48), 1));
+        codexActions.addView(signInCodex, new LinearLayout.LayoutParams(0, dp(48), 1));
+        content.addView(codexActions, smallGap());
 
         spinner = new ProgressBar(this);
         spinner.setIndeterminate(true);
@@ -288,6 +321,10 @@ public class MainActivity extends Activity {
         ImageButton newChat = iconButton(R.drawable.ic_new_chat, "New chat", Color.rgb(32, 30, 34));
         newChat.setOnClickListener(view -> resetChat());
         header.addView(newChat, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        cancelChatButton = iconButton(R.drawable.ic_cancel, "Cancel response", Color.rgb(176, 0, 32));
+        cancelChatButton.setEnabled(false);
+        cancelChatButton.setOnClickListener(view -> cancelActiveChat());
+        header.addView(cancelChatButton, new LinearLayout.LayoutParams(dp(48), dp(48)));
         content.addView(header);
 
         LinearLayout modelRow = new LinearLayout(this);
@@ -401,6 +438,111 @@ public class MainActivity extends Activity {
         launchPackage(TermuxBridge.TERMUX_PACKAGE, "https://github.com/termux/termux-app/releases");
     }
 
+    private void installAntigravity() {
+        try {
+            String root = "$HOME/.local/share/rava-antigravity/installer";
+            StringBuilder script = new StringBuilder("set -eu\n")
+                    .append("mkdir -p \"").append(root).append("/scripts\"\n");
+            appendAssetInstall(script, "antigravity/antigravity-termux.env",
+                    root + "/antigravity-termux.env", false);
+            appendAssetInstall(script, "antigravity/scripts/install-antigravity-termux.sh",
+                    root + "/scripts/install-antigravity-termux.sh", true);
+            appendAssetInstall(script, "antigravity/scripts/run-antigravity-termux.sh",
+                    root + "/scripts/run-antigravity-termux.sh", true);
+            script.append("if ! \"").append(root)
+                    .append("/scripts/install-antigravity-termux.sh\" verify; then\n")
+                    .append("  \"").append(root)
+                    .append("/scripts/install-antigravity-termux.sh\" install\n")
+                    .append("fi\n");
+            runCommand("Install Antigravity", script.toString(), true);
+        } catch (IOException error) {
+            showMessage("Could not prepare the verified Antigravity installer: "
+                    + error.getMessage());
+        }
+    }
+
+    private void appendAssetInstall(StringBuilder script, String asset, String destination,
+            boolean executable) throws IOException {
+        String encoded = android.util.Base64.encodeToString(readAsset(asset),
+                android.util.Base64.NO_WRAP);
+        script.append("printf '%s' '").append(encoded).append("' | base64 -d > \"")
+                .append(destination).append("\"\n")
+                .append("chmod ").append(executable ? "700" : "600").append(" \"")
+                .append(destination).append("\"\n");
+    }
+
+    private void startAntigravityLogin() {
+        String runner = "$HOME/.local/share/rava-antigravity/installer/scripts/"
+                + "run-antigravity-termux.sh";
+        runCommand("Google sign-in", "set -eu\nRAVA_AGY_REMOTE_AUTH=1 \"" + runner
+                + "\"\n", false);
+        uiHandler.postDelayed(() -> launchPackage(TermuxBridge.TERMUX_PACKAGE,
+                "https://github.com/termux/termux-app/releases"), 600);
+    }
+
+    private CodexProvider.AccountListener codexAccountListener() {
+        return new CodexProvider.AccountListener() {
+            @Override public void onStatus(String status) {
+                runOnUiThread(() -> codexAuthStatus.setText(status));
+            }
+
+            @Override public void onAccount(boolean authenticated, String accountType,
+                    String planType) {
+                String value = authenticated
+                        ? "Codex signed in" + (planType == null ? "" : " — " + planType)
+                        : "Codex is signed out.";
+                runOnUiThread(() -> codexAuthStatus.setText(value));
+            }
+
+            @Override public void onDeviceCode(String verificationUrl, String userCode) {
+                runOnUiThread(() -> {
+                    codexAuthStatus.setText("Enter this one-time code on the official page:\n\n"
+                            + userCode + "\n\n" + verificationUrl);
+                    if (CodexAuthProtocol.isTrustedVerificationUrl(verificationUrl)) {
+                        showCodexDeviceCode(verificationUrl, userCode);
+                    }
+                });
+            }
+
+            @Override public void onLoginCompleted(boolean success, String error) {
+                runOnUiThread(() -> codexAuthStatus.setText(success
+                        ? "Codex sign-in completed."
+                        : "Codex sign-in failed: " + (error == null ? "unknown error" : error)));
+            }
+
+            @Override public void onError(String error) {
+                runOnUiThread(() -> codexAuthStatus.setText("Codex error: " + error));
+            }
+        };
+    }
+
+    private void showCodexDeviceCode(String verificationUrl, String userCode) {
+        TextView code = chatText(userCode, 24, true);
+        code.setTextIsSelectable(true);
+        code.setGravity(Gravity.CENTER);
+        code.setPadding(dp(24), dp(28), dp(24), dp(28));
+        AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle("ChatGPT sign-in code")
+                .setMessage("Copy this one-time code, then enter it on the official page.")
+                .setView(code)
+                .setNegativeButton("Cancel", null)
+                .setNeutralButton("Copy code", null)
+                .setPositiveButton("Open official page", null)
+                .create();
+        dialog.setOnShowListener(ignored -> {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(view -> {
+                ClipboardManager clipboard = (ClipboardManager)
+                        getSystemService(Context.CLIPBOARD_SERVICE);
+                clipboard.setPrimaryClip(ClipData.newPlainText(
+                        "ChatGPT one-time sign-in code", userCode));
+                Toast.makeText(this, "Code copied", Toast.LENGTH_SHORT).show();
+            });
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view ->
+                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(verificationUrl))));
+        });
+        dialog.show();
+    }
+
     private void requestRunPermission() {
         if (!isInstalled(TermuxBridge.TERMUX_PACKAGE)) {
             showMessage("Install Termux first.");
@@ -411,39 +553,6 @@ public class MainActivity extends Activity {
             return;
         }
         requestPermissions(new String[]{TermuxBridge.RUN_PERMISSION}, RUN_PERMISSION_REQUEST);
-    }
-
-    private void installRava() {
-        try {
-            String encoded = android.util.Base64.encodeToString(readAsset("rava.tar.gz"), android.util.Base64.NO_WRAP);
-            String script = "set -eu\n"
-                    + "mkdir -p \"$HOME/Rava\"\n"
-                    + "tmp=\"$HOME/.rava-installer.tar.gz\"\n"
-                    + "cat <<'RAVA_BUNDLE' | base64 -d > \"$tmp\"\n"
-                    + encoded + "\nRAVA_BUNDLE\n"
-                    + "tar -xzf \"$tmp\" -C \"$HOME/Rava\"\n"
-                    + "rm -f \"$tmp\"\n"
-                    + "bash \"$HOME/Rava/scripts/device-full-install.sh\"\n";
-            runCommand("Install Rava", script, true);
-        } catch (IOException exception) {
-            showMessage("Could not read the embedded Rava package: " + exception.getMessage());
-        }
-    }
-
-    private void openChatGptLogin() {
-        runProjectCommand("Open ChatGPT sign-in", "bash scripts/start-termux-browser.sh https://chatgpt.com/");
-        output.postDelayed(() -> launchPackage(TermuxBridge.TERMUX_X11_PACKAGE,
-                "https://github.com/termux/termux-x11/releases"), 2500);
-    }
-
-    private void openGeminiLogin() {
-        runProjectCommand("Open Gemini sign-in", "bash scripts/start-gemini-login-browser.sh");
-        output.postDelayed(() -> launchPackage(TermuxBridge.TERMUX_X11_PACKAGE,
-                "https://github.com/termux/termux-x11/releases"), 2500);
-    }
-
-    private void runProjectCommand(String label, String command) {
-        runCommand(label, "set -e\ncd \"$HOME/Rava\"\n" + command + "\n", true);
     }
 
     private void runCommand(String label, String script, boolean background) {
@@ -467,35 +576,49 @@ public class MainActivity extends Activity {
 
     private void loadModels() {
         chatStatus.setText("Loading models…");
-        new Thread(() -> {
-            try {
-                JSONObject response = requestJson("GET", "/v1/models", null);
-                JSONArray data = response.getJSONArray("data");
-                List<String> models = new ArrayList<>();
-                for (int index = 0; index < data.length(); index++) {
-                    models.add(data.getJSONObject(index).getString("id"));
+        List<ProviderModel> loaded = Collections.synchronizedList(new ArrayList<>());
+        List<String> errors = Collections.synchronizedList(new ArrayList<>());
+        AtomicInteger pending = new AtomicInteger(2);
+        Runnable finish = () -> {
+            if (pending.decrementAndGet() != 0) return;
+            List<ProviderModel> models;
+            synchronized (loaded) { models = new ArrayList<>(loaded); }
+            models.sort((left, right) -> Integer.compare(
+                    modelPriority(left.archiveId()), modelPriority(right.archiveId())));
+            runOnUiThread(() -> {
+                modelAdapter.clear();
+                modelAdapter.addAll(models);
+                modelAdapter.notifyDataSetChanged();
+                if (currentModel != null) selectArchivedModel(currentModel);
+                if (models.isEmpty()) {
+                    chatStatus.setText("No provider is ready. Complete Setup first.\n"
+                            + String.join("\n", errors));
+                } else {
+                    chatStatus.setText(models.size() + " model"
+                            + (models.size() == 1 ? "" : "s") + " available"
+                            + (errors.isEmpty() ? "" : " — one provider needs setup"));
                 }
-                models.sort((left, right) -> Integer.compare(modelPriority(left), modelPriority(right)));
-                runOnUiThread(() -> {
-                    modelAdapter.clear();
-                    modelAdapter.addAll(models);
-                    modelAdapter.notifyDataSetChanged();
-                    if (currentModel != null) selectArchivedModel(currentModel);
-                    chatStatus.setText(models.isEmpty()
-                            ? "The engine returned no available models."
-                            : models.size() + " model" + (models.size() == 1 ? "" : "s") + " available");
-                });
-            } catch (Exception exception) {
-                runOnUiThread(() -> chatStatus.setText(
-                        "Could not reach Rava. Start the engine in Setup, then tap Reload.\n"
-                                + exception.getMessage()));
+            });
+        };
+        ChatProvider.Result<List<ProviderModel>> collector =
+                new ChatProvider.Result<List<ProviderModel>>() {
+            @Override public void onSuccess(List<ProviderModel> models) {
+                loaded.addAll(models);
+                finish.run();
             }
-        }).start();
+
+            @Override public void onError(String message) {
+                errors.add(message);
+                finish.run();
+            }
+        };
+        antigravityProvider.listModels(collector);
+        codexProvider.listModels(collector);
     }
 
     private void sendChatMessage() {
         String message = chatInput.getText().toString().trim();
-        Object selected = modelSpinner.getSelectedItem();
+        ProviderModel selected = (ProviderModel) modelSpinner.getSelectedItem();
         if (message.isEmpty()) {
             chatStatus.setText("Type a message first.");
             return;
@@ -505,38 +628,34 @@ public class MainActivity extends Activity {
             return;
         }
 
-        String model = selected.toString();
+        String model = selected.archiveId();
         ensureCurrentChat(model);
         appendCurrentMessage("user", message);
         saveCurrentChat();
         addMessageBubble("You", message, true);
-        TextView answerBubble = addMessageBubble(model, "...", false);
+        TextView answerBubble = addMessageBubble(selected.displayName, "...", false);
         Runnable typingAnimation = startTypingAnimation(answerBubble);
+        int requestGeneration = chatGeneration.incrementAndGet();
         chatInput.setText("");
         focusChatInput();
         sendButton.setEnabled(false);
+        cancelChatButton.setEnabled(true);
         chatStatus.setText("Waiting for " + model + "…");
 
-        new Thread(() -> {
-            try {
-                JSONObject body = new JSONObject();
-                body.put("app_id", "ir.rava.installer.chat");
-                body.put("model", model);
-                body.put("stream", true);
-                JSONArray messages = new JSONArray();
-                if (conversationId == null) {
-                    for (int index = 0; index < currentMessages.length(); index++) {
-                        messages.put(new JSONObject(currentMessages.getJSONObject(index).toString()));
-                    }
-                } else {
-                    messages.put(new JSONObject().put("role", "user").put("content", message));
-                }
-                body.put("messages", messages);
-                if (conversationId != null) body.put("conversation_id", conversationId);
-
-                String answer = streamChatCompletion(body, answerBubble);
+        ChatProvider provider = "codex".equals(selected.providerId)
+                ? codexProvider : antigravityProvider;
+        activeChatProvider = provider;
+        activeAnswerBubble = answerBubble;
+        activeTypingAnimation = typingAnimation;
+        provider.send(new ChatProvider.Request(
+                selected.modelId, conversationId, message),
+                new ChatProvider.Result<ChatProvider.Response>() {
+            @Override public void onSuccess(ChatProvider.Response response) {
+                if (chatGeneration.get() != requestGeneration) return;
                 runOnUiThread(() -> {
                     stopTypingAnimation(answerBubble, typingAnimation);
+                    conversationId = response.conversationId;
+                    String answer = response.text;
                     if (answer.isEmpty()) {
                         answerBubble.setText("(Empty response)");
                     } else {
@@ -546,80 +665,46 @@ public class MainActivity extends Activity {
                     saveCurrentChat();
                     chatStatus.setText("Conversation active");
                     sendButton.setEnabled(true);
+                    cancelChatButton.setEnabled(false);
+                    activeChatProvider = null;
                     focusChatInput();
                     scrollChatToBottom();
                 });
-            } catch (Exception exception) {
+            }
+
+            @Override public void onError(String error) {
+                if (chatGeneration.get() != requestGeneration) return;
                 runOnUiThread(() -> {
                     stopTypingAnimation(answerBubble, typingAnimation);
-                    conversationId = null;
-                    answerBubble.setText(exception.getMessage());
+                    answerBubble.setText(error);
                     answerBubble.setTextColor(Color.rgb(176, 0, 32));
                     chatStatus.setText("Request failed");
                     sendButton.setEnabled(true);
+                    cancelChatButton.setEnabled(false);
+                    activeChatProvider = null;
                     focusChatInput();
                     scrollChatToBottom();
                 });
             }
-        }).start();
+        });
     }
 
-    private String streamChatCompletion(JSONObject body, TextView answerBubble) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(
-                "http://127.0.0.1:8766/v1/chat/completions").openConnection();
-        connection.setRequestMethod("POST");
-        connection.setConnectTimeout(5000);
-        connection.setReadTimeout(180000);
-        connection.setDoOutput(true);
-        connection.setRequestProperty("Accept", "text/event-stream");
-        connection.setRequestProperty("Content-Type", "application/json");
-        connection.setRequestProperty("X-Rava-App-Id", "ir.rava.installer.chat");
-        connection.getOutputStream().write(body.toString().getBytes(StandardCharsets.UTF_8));
-
-        int status = connection.getResponseCode();
-        if (status < 200 || status >= 300) {
-            InputStream errorStream = connection.getErrorStream();
-            String detail = errorStream == null ? "" : readText(errorStream);
-            connection.disconnect();
-            try {
-                detail = new JSONObject(detail).getJSONObject("error").getString("message");
-            } catch (Exception ignored) {
-                // Preserve the raw response when it does not use the Rava error schema.
-            }
-            throw new IOException("HTTP " + status + (detail.isEmpty() ? "" : ": " + detail));
+    private void cancelActiveChat() {
+        ChatProvider provider = activeChatProvider;
+        if (provider == null) return;
+        chatGeneration.incrementAndGet();
+        provider.cancel();
+        activeChatProvider = null;
+        if (activeAnswerBubble != null && activeTypingAnimation != null) {
+            stopTypingAnimation(activeAnswerBubble, activeTypingAnimation);
+            activeAnswerBubble.setText("Canceled");
         }
-
-        StringBuilder answer = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(
-                connection.getInputStream(), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (!line.startsWith("data: ")) continue;
-                String data = line.substring(6);
-                if ("[DONE]".equals(data)) break;
-                JSONObject event = new JSONObject(data);
-                conversationId = event.optString("conversation_id", conversationId);
-                JSONObject choice = event.getJSONArray("choices").getJSONObject(0);
-                JSONObject delta = choice.getJSONObject("delta");
-                String chunk = delta.optString("content", "");
-                if ("error".equals(choice.optString("finish_reason"))) {
-                    throw new IOException(chunk.isEmpty() ? "The provider stream failed." : chunk);
-                }
-                if (chunk.isEmpty()) continue;
-                answer.append(chunk);
-                String visibleText = answer.toString();
-                runOnUiThread(() -> {
-                    answerBubble.setTag(null);
-                    answerBubble.setText(visibleText);
-                    applyMessageDirection(answerBubble, visibleText);
-                    chatStatus.setText("Receiving response…");
-                    scrollChatToBottom();
-                });
-            }
-        } finally {
-            connection.disconnect();
-        }
-        return answer.toString();
+        activeAnswerBubble = null;
+        activeTypingAnimation = null;
+        sendButton.setEnabled(true);
+        cancelChatButton.setEnabled(false);
+        chatStatus.setText("Response canceled");
+        focusChatInput();
     }
 
     private void renderRichAnswer(TextView bubble, String answer) {
@@ -642,8 +727,7 @@ public class MainActivity extends Activity {
         int imageWidth = Math.min(
                 (int) (getResources().getDisplayMetrics().widthPixels * 0.84f), dp(420));
         for (String[] image : images) {
-            String source = image[0].startsWith("/")
-                    ? "http://127.0.0.1:8766" + image[0] : image[0];
+            String source = image[0];
             ImageView imageView = new ImageView(this);
             imageView.setScaleType(ImageView.ScaleType.CENTER_CROP);
             imageView.setContentDescription(image[1].isEmpty() ? "Response image" : image[1]);
@@ -709,50 +793,13 @@ public class MainActivity extends Activity {
         uiHandler.removeCallbacks(animation);
     }
 
-    private JSONObject requestJson(String method, String path, JSONObject body) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(
-                "http://127.0.0.1:8766" + path).openConnection();
-        connection.setRequestMethod(method);
-        connection.setConnectTimeout(5000);
-        connection.setReadTimeout(180000);
-        connection.setRequestProperty("Accept", "application/json");
-        connection.setRequestProperty("X-Rava-App-Id", "ir.rava.installer.chat");
-        if (body != null) {
-            connection.setDoOutput(true);
-            connection.setRequestProperty("Content-Type", "application/json");
-            byte[] payload = body.toString().getBytes(StandardCharsets.UTF_8);
-            connection.getOutputStream().write(payload);
-        }
-        int status = connection.getResponseCode();
-        InputStream stream = status >= 200 && status < 300
-                ? connection.getInputStream() : connection.getErrorStream();
-        String response = stream == null ? "" : readText(stream);
-        connection.disconnect();
-        if (status < 200 || status >= 300) {
-            String detail = response;
-            try {
-                detail = new JSONObject(response).getJSONObject("error").getString("message");
-            } catch (Exception ignored) {
-                // Preserve the raw response when it does not use the Rava error schema.
-            }
-            throw new IOException("HTTP " + status + (detail.isEmpty() ? "" : ": " + detail));
-        }
-        return new JSONObject(response);
-    }
-
-    private String readText(InputStream input) throws IOException {
-        try (InputStream source = input; ByteArrayOutputStream bytes = new ByteArrayOutputStream()) {
-            byte[] buffer = new byte[8192];
-            int count;
-            while ((count = source.read(buffer)) != -1) bytes.write(buffer, 0, count);
-            return bytes.toString(StandardCharsets.UTF_8.name());
-        }
-    }
-
     private int modelPriority(String model) {
-        if ("gemini/gemini-flash".equals(model)) return 0;
-        if (model.startsWith("gemini/")) return 1;
-        return 2;
+        if ("codex/gpt-5.6-sol".equals(model)) return 0;
+        if ("antigravity/gemini-3.8-flash-low".equals(model)) return 1;
+        if (model.startsWith("antigravity/gemini-")) return 2;
+        if (model.startsWith("antigravity/")) return 3;
+        if ("codex/gpt-6-astra".equals(model)) return 5;
+        return 4;
     }
 
     private TextView addMessageBubble(String author, String message, boolean user) {
@@ -828,10 +875,12 @@ public class MainActivity extends Activity {
     }
 
     private void ensureCurrentChat(String model) {
-        if (currentChatId == null) {
+        if (currentChatId == null || !model.equals(currentModel)) {
             currentChatId = UUID.randomUUID().toString();
             currentModel = model;
+            conversationId = null;
             currentMessages = new JSONArray();
+            clearChatTranscript();
         }
     }
 
@@ -1031,7 +1080,8 @@ public class MainActivity extends Activity {
 
     private void selectArchivedModel(String model) {
         for (int index = 0; index < modelAdapter.getCount(); index++) {
-            if (model.equals(modelAdapter.getItem(index))) {
+            ProviderModel item = modelAdapter.getItem(index);
+            if (item != null && model.equals(item.archiveId())) {
                 modelSpinner.setSelection(index);
                 return;
             }
@@ -1042,71 +1092,19 @@ public class MainActivity extends Activity {
         int count = ids.size();
         new AlertDialog.Builder(this)
                 .setTitle(count == 1 ? "Delete this chat?" : "Delete " + count + " chats?")
-                .setMessage("This cannot be undone.")
+                .setMessage("This deletes Rava's local archive. The official CLIs do not expose "
+                        + "a verified remote-delete command, so their provider session may remain.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Delete", (dialog, which) -> deleteChatsFromProviders(ids))
                 .show();
     }
 
     private void deleteChatsFromProviders(Set<String> ids) {
-        Toast.makeText(this, "Deleting from the provider…", Toast.LENGTH_SHORT).show();
-        new Thread(() -> {
-            Set<String> deletedIds = new HashSet<>();
-            List<String> failures = new ArrayList<>();
-            JSONArray chats = readChatArchive();
-            for (int index = 0; index < chats.length(); index++) {
-                JSONObject chat = chats.optJSONObject(index);
-                if (chat == null || !ids.contains(chat.optString("id"))) continue;
-                String engineConversationId = chat.optString("conversation_id");
-                if (engineConversationId.isEmpty()) {
-                    deletedIds.add(chat.optString("id"));
-                    continue;
-                }
-                try {
-                    deleteRavaConversation(engineConversationId);
-                    deletedIds.add(chat.optString("id"));
-                } catch (Exception exception) {
-                    failures.add(chat.optString("title", "Untitled chat"));
-                    Log.e("RavaArchive", "Provider deletion failed", exception);
-                }
-            }
-            runOnUiThread(() -> {
-                if (!deletedIds.isEmpty()) deleteArchivedChats(deletedIds);
-                renderChatArchive();
-                if (failures.isEmpty()) {
-                    Toast.makeText(this, "Chat deleted everywhere.", Toast.LENGTH_SHORT).show();
-                } else {
-                    Toast.makeText(this,
-                            "Could not delete " + failures.size()
-                                    + " provider chat" + (failures.size() == 1 ? "." : "s."),
-                            Toast.LENGTH_LONG).show();
-                }
-            });
-        }).start();
-    }
-
-    private void deleteRavaConversation(String engineConversationId) throws Exception {
-        HttpURLConnection connection = (HttpURLConnection) new URL(
-                "http://127.0.0.1:8766/v1/conversations/" + engineConversationId)
-                .openConnection();
-        connection.setRequestMethod("DELETE");
-        connection.setConnectTimeout(5000);
-        connection.setReadTimeout(60000);
-        connection.setRequestProperty("X-Rava-App-Id", "ir.rava.installer.chat");
-        int status = connection.getResponseCode();
-        if (status >= 200 && status < 300) {
-            connection.disconnect();
-            return;
-        }
-        InputStream errorStream = connection.getErrorStream();
-        String detail = errorStream == null ? "" : readText(errorStream);
-        connection.disconnect();
-        try {
-            detail = new JSONObject(detail).getJSONObject("error").getString("message");
-        } catch (Exception ignored) {
-            // Preserve the raw response when it does not use the Rava error schema.
-        }
-        throw new IOException("HTTP " + status + (detail.isEmpty() ? "" : ": " + detail));
+        deleteArchivedChats(ids);
+        renderChatArchive();
+        Toast.makeText(this, ids.size() == 1
+                ? "Local chat deleted." : ids.size() + " local chats deleted.",
+                Toast.LENGTH_SHORT).show();
     }
 
     private void deleteArchivedChats(Set<String> ids) {
@@ -1139,17 +1137,15 @@ public class MainActivity extends Activity {
 
     private void refreshPrerequisites() {
         boolean termux = isInstalled(TermuxBridge.TERMUX_PACKAGE);
-        boolean x11 = isInstalled(TermuxBridge.TERMUX_X11_PACKAGE);
         boolean permission = checkSelfPermission(TermuxBridge.RUN_PERMISSION) == PackageManager.PERMISSION_GRANTED;
         prerequisites.setText(
                 (termux ? "✓" : "✗") + " Termux    "
-                        + (x11 ? "✓" : "✗") + " Termux:X11    "
                         + (permission ? "✓" : "✗") + " Command permission"
         );
-        prerequisites.setTextColor(allReady(termux, x11, permission)
+        prerequisites.setTextColor(allReady(termux, permission)
                 ? Color.rgb(35, 91, 57) : Color.rgb(70, 62, 83));
         prerequisites.setBackground(rounded(
-                allReady(termux, x11, permission) ? Color.rgb(224, 244, 231) : Color.rgb(238, 234, 247),
+                allReady(termux, permission) ? Color.rgb(224, 244, 231) : Color.rgb(238, 234, 247),
                 18));
     }
 
@@ -1179,13 +1175,7 @@ public class MainActivity extends Activity {
     private void showRunning(String label, int id) {
         spinner.setVisibility(View.VISIBLE);
         progress.setText(label + " is running… (ID " + id + ")");
-        if ("Start Rava".equals(label)) {
-            output.setText("Starting Chromium, ChatGPT sidecar, Gemini session, and the local API.\n\nThis normally takes 30–90 seconds. Keep Termux:X11 open until completion.");
-        } else if ("Install Rava".equals(label)) {
-            output.setText("Installing packages and building native dependencies.\n\nThe first installation may take several minutes. You may leave the app and return later.");
-        } else {
-            output.setText("The result will appear here when the command finishes. You may leave the app and return later.");
-        }
+        output.setText("The verified Termux command is running. Its result will appear here when it finishes. You may leave Rava and return later.");
     }
 
     private byte[] readAsset(String name) throws IOException {
@@ -1264,8 +1254,8 @@ public class MainActivity extends Activity {
         item.setBackgroundColor(Color.TRANSPARENT);
     }
 
-    private boolean allReady(boolean termux, boolean x11, boolean permission) {
-        return termux && x11 && permission;
+    private boolean allReady(boolean termux, boolean permission) {
+        return termux && permission;
     }
 
     private void addStep(LinearLayout parent, String number, String title, String description,

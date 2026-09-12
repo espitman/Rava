@@ -8,6 +8,7 @@ import android.os.Bundle;
 public class CommandResultService extends IntentService {
     static final String EXTRA_EXECUTION_ID = "execution_id";
     static final String EXTRA_LABEL = "label";
+    static final String EXTRA_SENSITIVE = "sensitive";
     static final String ACTION_RESULT = "ir.rava.installer.COMMAND_RESULT";
 
     public CommandResultService() {
@@ -25,6 +26,10 @@ public class CommandResultService extends IntentService {
         String stdout = result == null ? "" : result.getString("stdout", "");
         String stderr = result == null ? "" : result.getString("stderr", "");
         String errorMessage = result == null ? "Termux returned no result." : result.getString("errmsg", "");
+        boolean sensitive = intent.getBooleanExtra(EXTRA_SENSITIVE, false);
+        TermuxCommandResult commandResult = new TermuxCommandResult(executionId, exitCode,
+                internalError, stdout, stderr, errorMessage);
+        boolean delivered = TermuxBridge.dispatch(commandResult);
 
         SharedPreferences preferences = getSharedPreferences("command_results", MODE_PRIVATE);
         preferences.edit()
@@ -32,9 +37,10 @@ public class CommandResultService extends IntentService {
                 .putInt("execution_id", executionId)
                 .putInt("exit_code", exitCode)
                 .putInt("internal_error", internalError)
-                .putString("stdout", trimOutput(stdout))
-                .putString("stderr", trimOutput(stderr))
-                .putString("error_message", trimOutput(errorMessage))
+                .putString("stdout", sensitive ? "" : trimOutput(stdout))
+                .putString("stderr", sensitive ? "" : trimOutput(stderr))
+                .putString("error_message", sensitive ? "" : trimOutput(errorMessage))
+                .putBoolean("sensitive_result_delivered", sensitive && delivered)
                 .putLong("finished_at", System.currentTimeMillis())
                 .remove("active_id")
                 .remove("active_label")
