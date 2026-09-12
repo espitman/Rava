@@ -106,7 +106,10 @@ records but are not resumable through the new CLIs.
 Antigravity responses are returned when the Termux command completes; the chat
 shows animated waiting dots meanwhile. Codex text is processed from app-server
 stream events. Markdown HTTPS images are rendered when a provider response
-contains a supported image URL.
+contains a supported image URL. The current account-backed CLIs do not provide
+Rava with an image-generation or attachment tool. Provider prompts therefore
+require the model to state that limitation instead of claiming that a described
+image was sent.
 
 ## Use Rava from another Android app
 

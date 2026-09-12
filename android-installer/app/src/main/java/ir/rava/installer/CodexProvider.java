@@ -70,7 +70,8 @@ final class CodexProvider implements ChatProvider {
                     request.conversationId == null
                             ? CodexConversationSession.Mode.NEW_THREAD
                             : CodexConversationSession.Mode.RESUME_THREAD,
-                    request.conversationId, runtime.workspace().getAbsolutePath(), request.prompt,
+                    request.conversationId, runtime.workspace().getAbsolutePath(),
+                    request.providerPrompt(),
                     request.modelId, new EmptyConversationListener() {
                         @Override public void onThreadReady(String id, String model) {
                             threadId[0] = id;

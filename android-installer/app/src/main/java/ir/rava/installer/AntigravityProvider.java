@@ -64,7 +64,7 @@ final class AntigravityProvider implements ChatProvider {
             return;
         }
         String encodedPrompt = Base64.encodeToString(
-                request.prompt.getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
+                request.providerPrompt().getBytes(StandardCharsets.UTF_8), Base64.NO_WRAP);
         StringBuilder script = new StringBuilder("set -euo pipefail\n")
                 .append("prompt=$(printf '%s' '").append(encodedPrompt)
                 .append("' | base64 -d)\n")

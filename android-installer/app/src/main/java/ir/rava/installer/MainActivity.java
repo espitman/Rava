@@ -544,7 +544,7 @@ public class MainActivity extends Activity {
         TextView aboutTitle = sectionTitle("ABOUT");
         content.addView(aboutTitle, sectionGap());
         LinearLayout aboutCard = setupCard();
-        addInformationRow(aboutCard, "Rava", "Version 1.0.1", true);
+        addInformationRow(aboutCard, "Rava", "Version 1.0.2", true);
         addInformationRow(aboutCard, "Codex", "Embedded runtime · 6 models", true);
         addInformationRow(aboutCard, "Gemini", "Antigravity via Termux · 14 models", false);
         content.addView(aboutCard);

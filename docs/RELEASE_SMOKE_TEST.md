@@ -5,11 +5,11 @@ Date: 2026-09-12 (Asia/Tehran)
 ## Delivered artifacts
 
 - Application ID: `ir.rava.installer`
-- Version: `1.0.1` (`versionCode 14`)
+- Version: `1.0.2` (`versionCode 15`)
 - Device target: Android 8.0+ on `arm64-v8a`
 - Debug APK: `android-installer/app/build/outputs/apk/debug/app-debug.apk`
-  - Size: 78,049,423 bytes
-  - SHA-256: `024d0133702bc201ce423670b8ae2145fb2a270a3b0e4e3422a226c0fe0fad38`
+  - Size: 78,049,615 bytes
+  - SHA-256: `9fe628ee4aab0cb0ce8c780852ec976c29e50cd703a63e81e8cbcf4dc4f58fc1`
 - Client AAR: `android-installer/rava-client/build/outputs/aar/rava-client-release.aar`
   - Size: 4,453 bytes
   - SHA-256: `47c984bf1a9bca4204e22462050a5b198f0ce869904b28832e9a25d3a8aebb96`
@@ -47,6 +47,9 @@ manual test did not capture a reliable start/end timestamp pair.
   Settings tab switches and persists the app-wide light/dark appearance, and
   the selected model plus the complete model dropdown remain readable in dark
   mode.
+- Both provider prompts prevent a model from claiming an imagined image was
+  attached. Rava still renders a real HTTPS Markdown image when one is actually
+  present in the response.
 - Rava loaded 20 confirmed models: six Codex models and fourteen Antigravity
   models. A provider failure does not hide the other provider's models.
 - `codex/gpt-5.6-sol` returned `CODEX_OK`, then after force-stop/restart resumed

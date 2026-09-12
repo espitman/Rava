@@ -13,6 +13,14 @@ interface ChatProvider extends AutoCloseable {
             this.conversationId = conversationId;
             this.prompt = prompt;
         }
+
+        String providerPrompt() {
+            return "Rava client capability: Only claim that an image is shown or attached if "
+                    + "this response actually contains a valid HTTPS Markdown image in "
+                    + "![alt](https://...) format. If you cannot produce one, clearly say that "
+                    + "image generation is unavailable in this chat. Never describe an imagined "
+                    + "image as if it was sent.\n\nUser message:\n" + prompt;
+        }
     }
 
     final class Response {
