@@ -26,7 +26,7 @@ def test_config_reads_private_json_file(tmp_path, monkeypatch):
     assert config.gemini_secure_1psid == "cookie-one"
     assert config.gemini_secure_1psidts == "cookie-two"
     assert config.chatgpt_project_name == "Rava"
-    assert config.gemini_temporary is True
+    assert config.gemini_temporary is False
 
 
 def test_environment_overrides_config_file(tmp_path, monkeypatch):

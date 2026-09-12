@@ -34,5 +34,8 @@ class Provider(ABC):
     async def status(self) -> ProviderStatus:
         """Return current provider availability without raising."""
 
+    async def delete_session(self, session: Any) -> None:
+        """Delete the provider-side conversation represented by a session."""
+
     async def close(self) -> None:
         """Release provider resources."""

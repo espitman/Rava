@@ -1,0 +1,60 @@
+diff --git a/src/chatgpt_web2api/api_server.py b/src/chatgpt_web2api/api_server.py
+index ce7874a..11b6fb7 100644
+--- a/src/chatgpt_web2api/api_server.py
++++ b/src/chatgpt_web2api/api_server.py
+@@ -84,6 +84,9 @@ class APIServer:
+         self.app.router.add_get("/v1/models", self._handle_models)
+         self.app.router.add_get("/v1/projects", self._handle_projects)
+         self.app.router.add_post("/v1/projects", self._handle_create_project)
++        self.app.router.add_delete(
++            "/v1/conversations/{conversation_id}", self._handle_delete_conversation
++        )
+         self.app.router.add_get("/health", self._handle_health)
+         self.app.router.add_get("/", self._handle_health)
+
+@@ -264,6 +267,45 @@ class APIServer:
+             )
+         return web.json_response(result, status=201)
+
++    async def _handle_delete_conversation(self, request: web.Request) -> web.Response:
++        if err := self._check_auth(request):
++            return err
++        conversation_id = request.match_info.get("conversation_id", "").strip()
++        if not conversation_id:
++            return web.json_response(
++                {
++                    "error": {
++                        "message": "Conversation ID is required",
++                        "type": "invalid_request_error",
++                    }
++                },
++                status=400,
++            )
++        try:
++            if self._parallel_tabs:
++                port, key = resolve_mutation_lock(self._driver, True)
++            else:
++                port, key = self._cdp_port, None
++            async with MutationLock(port, key):
++                deleted = await self._driver.delete_conversation(conversation_id)
++            if not deleted:
++                return web.json_response(
++                    {
++                        "error": {
++                            "message": "ChatGPT did not delete the conversation",
++                            "type": "delete_failed",
++                        }
++                    },
++                    status=502,
++                )
++            if self._last_conv_id == conversation_id:
++                self._last_conv_id = None
++                self._last_project_id = None
++            return web.Response(status=204)
++        except Exception as e:
++            logger.error("Conversation deletion failed: %s", e, exc_info=True)
++            return self._error_response(e)
++
+     async def _handle_chat(self, request: web.Request) -> web.Response:
+         if err := self._check_auth(request):
+             return err

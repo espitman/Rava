@@ -1044,11 +1044,69 @@ public class MainActivity extends Activity {
                 .setTitle(count == 1 ? "Delete this chat?" : "Delete " + count + " chats?")
                 .setMessage("This cannot be undone.")
                 .setNegativeButton("Cancel", null)
-                .setPositiveButton("Delete", (dialog, which) -> {
-                    deleteArchivedChats(ids);
-                    renderChatArchive();
-                })
+                .setPositiveButton("Delete", (dialog, which) -> deleteChatsFromProviders(ids))
                 .show();
+    }
+
+    private void deleteChatsFromProviders(Set<String> ids) {
+        Toast.makeText(this, "Deleting from the provider…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            Set<String> deletedIds = new HashSet<>();
+            List<String> failures = new ArrayList<>();
+            JSONArray chats = readChatArchive();
+            for (int index = 0; index < chats.length(); index++) {
+                JSONObject chat = chats.optJSONObject(index);
+                if (chat == null || !ids.contains(chat.optString("id"))) continue;
+                String engineConversationId = chat.optString("conversation_id");
+                if (engineConversationId.isEmpty()) {
+                    deletedIds.add(chat.optString("id"));
+                    continue;
+                }
+                try {
+                    deleteRavaConversation(engineConversationId);
+                    deletedIds.add(chat.optString("id"));
+                } catch (Exception exception) {
+                    failures.add(chat.optString("title", "Untitled chat"));
+                    Log.e("RavaArchive", "Provider deletion failed", exception);
+                }
+            }
+            runOnUiThread(() -> {
+                if (!deletedIds.isEmpty()) deleteArchivedChats(deletedIds);
+                renderChatArchive();
+                if (failures.isEmpty()) {
+                    Toast.makeText(this, "Chat deleted everywhere.", Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(this,
+                            "Could not delete " + failures.size()
+                                    + " provider chat" + (failures.size() == 1 ? "." : "s."),
+                            Toast.LENGTH_LONG).show();
+                }
+            });
+        }).start();
+    }
+
+    private void deleteRavaConversation(String engineConversationId) throws Exception {
+        HttpURLConnection connection = (HttpURLConnection) new URL(
+                "http://127.0.0.1:8766/v1/conversations/" + engineConversationId)
+                .openConnection();
+        connection.setRequestMethod("DELETE");
+        connection.setConnectTimeout(5000);
+        connection.setReadTimeout(60000);
+        connection.setRequestProperty("X-Rava-App-Id", "ir.rava.installer.chat");
+        int status = connection.getResponseCode();
+        if (status >= 200 && status < 300) {
+            connection.disconnect();
+            return;
+        }
+        InputStream errorStream = connection.getErrorStream();
+        String detail = errorStream == null ? "" : readText(errorStream);
+        connection.disconnect();
+        try {
+            detail = new JSONObject(detail).getJSONObject("error").getString("message");
+        } catch (Exception ignored) {
+            // Preserve the raw response when it does not use the Rava error schema.
+        }
+        throw new IOException("HTTP " + status + (detail.isEmpty() ? "" : ": " + detail));
     }
 
     private void deleteArchivedChats(Set<String> ids) {

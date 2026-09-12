@@ -101,7 +101,7 @@ async def _create_conversation(request: web.Request) -> web.Response:
 
 async def _delete_conversation(request: web.Request) -> web.Response:
     try:
-        _engine(request).conversations.delete(
+        await _engine(request).delete_conversation(
             request.match_info["conversation_id"], _app_id(request)
         )
         return web.Response(status=204)

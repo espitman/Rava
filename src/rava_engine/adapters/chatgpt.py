@@ -129,6 +129,21 @@ class ChatGPTWeb2APIProvider(Provider):
         except Exception as exc:
             return ProviderStatus(self.name, False, str(exc))
 
+    async def delete_session(self, session: dict[str, Any]) -> None:
+        conversation_id = session.get("conversation_id")
+        if not conversation_id:
+            return
+        http = await self._session()
+        try:
+            async with http.delete(
+                f"{self._base_url}/v1/conversations/{conversation_id}"
+            ) as response:
+                if response.status not in {200, 204}:
+                    payload = await response.json(content_type=None)
+                    raise ProviderUnavailable(_error_message(payload, response.status))
+        except aiohttp.ClientError as exc:
+            raise ProviderUnavailable(f"Could not delete the ChatGPT conversation: {exc}") from exc
+
     async def close(self) -> None:
         if self._http is not None:
             await self._http.close()

@@ -26,7 +26,7 @@ and health checks.
 - Separate Chromium profiles for ChatGPT and Gemini
 - Graphical Android setup companion
 - Built-in Android test chat with model selection and conversation continuation
-- Persistent on-device chat archive with reopen, single-delete, and multi-select deletion
+- Persistent on-device chat archive with reopen and provider-backed deletion
 - Inline response images cached locally by the engine and rendered in Android chat
 - Automatic routing of ChatGPT conversations into a dedicated `Rava` project
 - Temporary Gemini conversations so Rava does not add entries to Gemini history
@@ -38,9 +38,11 @@ providers. The exact models available depend on the signed-in accounts.
 
 Rava looks up or creates a project named `Rava` in ChatGPT and sends new
 ChatGPT conversations into it. Gemini currently has no equivalent project
-folders, so Rava uses Gemini's temporary-chat mode to keep those conversations
-out of Gemini history. Set `RAVA_CHATGPT_PROJECT` to an empty value to disable
-ChatGPT project routing, or `RAVA_GEMINI_TEMPORARY=false` to retain Gemini chats.
+folders, so its Rava conversations remain in the normal Gemini history. Deleting
+a conversation through Rava also deletes its provider-side ChatGPT or Gemini
+conversation before removing the Android archive entry. Set
+`RAVA_CHATGPT_PROJECT` to an empty value to disable ChatGPT project routing, or
+`RAVA_GEMINI_TEMPORARY=true` to opt out of Gemini history.
 
 ## Architecture
 
@@ -92,7 +94,8 @@ After startup, choose **Chat** in the bottom navigation, reload the model list, 
 model, and send a message. The test client continues the same conversation
 until **New chat** is tapped. Choose **Archive** in the bottom navigation to browse
 saved conversations, reopen one, and continue it in Chat. Archive entries can be
-deleted individually or selected in bulk; every deletion requires confirmation.
+deleted individually or selected in bulk; every deletion requires confirmation
+and removes the corresponding provider conversation.
 
 Build the app from source:
 

@@ -9,6 +9,8 @@ upstream_url="https://github.com/Octo-Lex/ChatGPT-Web2API.git"
 upstream_commit="497527dceabfa3f95961e23c291e618c5570f1ac"
 patch_file="$project_dir/patches/chatgpt-web2api-strict-model.patch"
 projects_patch_file="$project_dir/patches/chatgpt-web2api-projects.patch"
+delete_patch_file="$project_dir/patches/chatgpt-web2api-delete.patch"
+fast_navigation_patch_file="$project_dir/patches/chatgpt-web2api-fast-navigation.patch"
 
 mkdir -p "$data_dir"
 
@@ -23,19 +25,14 @@ else
   fi
 fi
 
-if git -C "$source_dir" apply --check "$patch_file"; then
-  git -C "$source_dir" apply "$patch_file"
-elif ! git -C "$source_dir" apply --reverse --check "$patch_file"; then
-  echo "Strict-model patch can neither be applied nor verified." >&2
-  exit 1
-fi
-
-if git -C "$source_dir" apply --check "$projects_patch_file"; then
-  git -C "$source_dir" apply "$projects_patch_file"
-elif ! git -C "$source_dir" apply --reverse --check "$projects_patch_file"; then
-  echo "Projects patch can neither be applied nor verified." >&2
-  exit 1
-fi
+# This checkout is a managed dependency. Reset it before patching so repeated
+# installs remain deterministic even when adjacent patches change the same file.
+git -C "$source_dir" reset --hard "$upstream_commit"
+git -C "$source_dir" clean -fd
+git -C "$source_dir" apply "$patch_file"
+git -C "$source_dir" apply "$projects_patch_file"
+git -C "$source_dir" apply "$delete_patch_file"
+git -C "$source_dir" apply "$fast_navigation_patch_file"
 
 # maturin cannot infer this from a Termux Python executable.  The Python
 # platform tag carries the correct Android ABI baseline (currently android-24).

@@ -92,6 +92,18 @@ class GeminiWebProvider(Provider):
         except Exception as exc:
             return ProviderStatus(self.name, False, str(exc))
 
+    async def delete_session(self, session: Any) -> None:
+        if self._temporary:
+            return
+        conversation_id = str(getattr(session, "cid", "") or "")
+        if not conversation_id:
+            return
+        client = await self._ensure_client()
+        try:
+            await client.delete_chat(conversation_id)
+        except Exception as exc:
+            raise ProviderUnavailable(f"Could not delete the Gemini conversation: {exc}") from exc
+
     async def close(self) -> None:
         if self._client is not None:
             await self._client.close()

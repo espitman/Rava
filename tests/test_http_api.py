@@ -58,6 +58,36 @@ async def test_http_completion_returns_conversation_id(http_engine: Engine) -> N
         assert payload["choices"][0]["message"]["content"] == "answer:hello"
 
 
+async def test_http_delete_removes_provider_and_local_conversation() -> None:
+    class DeletingProvider(FakeProvider):
+        deleted = False
+
+        async def delete_session(self, session: object) -> None:
+            self.deleted = True
+
+    provider = DeletingProvider()
+    engine = Engine(ProviderRegistry([provider]))
+    async with TestClient(TestServer(create_app(engine))) as client:
+        created = await client.post(
+            "/v1/conversations",
+            headers={"X-Rava-App-Id": "app.one"},
+            json={"model": "fake/exact"},
+        )
+        conversation_id = (await created.json())["id"]
+        deleted = await client.delete(
+            f"/v1/conversations/{conversation_id}",
+            headers={"X-Rava-App-Id": "app.one"},
+        )
+
+        assert deleted.status == 204
+        assert provider.deleted is True
+        missing = await client.delete(
+            f"/v1/conversations/{conversation_id}",
+            headers={"X-Rava-App-Id": "app.one"},
+        )
+        assert missing.status == 404
+
+
 async def test_http_stream_uses_sse(http_engine: Engine) -> None:
     async with TestClient(TestServer(create_app(http_engine))) as client:
         response = await client.post(

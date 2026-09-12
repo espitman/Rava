@@ -28,6 +28,7 @@ def main() -> None:
         config["gemini_secure_1psidts"] = secure_1psidts
     else:
         config.pop("gemini_secure_1psidts", None)
+    config["gemini_temporary"] = False
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
     temporary = config_path.with_suffix(".tmp")

@@ -6,7 +6,12 @@ from collections.abc import AsyncIterator, Sequence
 import pytest
 
 from rava_engine.engine import Engine
-from rava_engine.errors import ConversationAccessDenied, InvalidRequest, ModelNotFound
+from rava_engine.errors import (
+    ConversationAccessDenied,
+    ConversationNotFound,
+    InvalidRequest,
+    ModelNotFound,
+)
 from rava_engine.provider import Provider
 from rava_engine.registry import ProviderRegistry
 from rava_engine.types import Message, ModelInfo, ProviderStatus
@@ -76,6 +81,24 @@ async def test_completion_streams_and_records_messages(engine: Engine) -> None:
     )
     assert "".join([chunk async for chunk in chunks]) == "answer:hello"
     assert conversation.messages == [Message("user", "hello")]
+
+
+async def test_delete_conversation_deletes_provider_session_first() -> None:
+    class DeletingProvider(FakeProvider):
+        deleted_session: object | None = None
+
+        async def delete_session(self, session: object) -> None:
+            self.deleted_session = session
+
+    provider = DeletingProvider()
+    engine = Engine(ProviderRegistry([provider]))
+    conversation = await engine.create_conversation("app.one", "fake/exact")
+
+    await engine.delete_conversation(conversation.id, "app.one")
+
+    assert provider.deleted_session is conversation.provider_session
+    with pytest.raises(ConversationNotFound):
+        engine.conversations.get(conversation.id, "app.one")
 
 
 async def test_registered_request_can_be_cancelled(engine: Engine) -> None:

@@ -62,6 +62,13 @@ class Engine:
     def unregister_request(self, request_id: str) -> None:
         self._requests.pop(request_id, None)
 
+    async def delete_conversation(self, conversation_id: str, app_id: str) -> None:
+        conversation = self.conversations.get(conversation_id, app_id)
+        provider = self.registry.provider(conversation.model.provider)
+        async with self.conversations.lock(conversation.id):
+            await provider.delete_session(conversation.provider_session)
+            self.conversations.delete(conversation.id, app_id)
+
     def cancel_request(self, request_id: str) -> bool:
         task = self._requests.get(request_id)
         if task is None or task.done():

@@ -78,3 +78,21 @@ async def test_gemini_provider_preserves_images_as_markdown() -> None:
     assert len(chunks) == 1
     assert chunks[0].startswith("A nebula\n\n![Space](/v1/media/")
     assert chunks[0].endswith(".jpg)")
+
+
+async def test_gemini_provider_deletes_persistent_chat() -> None:
+    class FakeClient:
+        deleted_chat: str | None = None
+
+        async def delete_chat(self, conversation_id: str) -> None:
+            self.deleted_chat = conversation_id
+
+    provider = GeminiWebProvider("cookie", temporary=False)
+    client = FakeClient()
+    provider._client = client
+    session = FakeGeminiSession()
+    session.cid = "gemini-chat-one"
+
+    await provider.delete_session(session)
+
+    assert client.deleted_chat == "gemini-chat-one"

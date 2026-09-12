@@ -19,7 +19,7 @@ class Config:
     chatgpt_project_name: str | None = "Rava"
     gemini_secure_1psid: str | None = None
     gemini_secure_1psidts: str | None = None
-    gemini_temporary: bool = True
+    gemini_temporary: bool = False
 
     @classmethod
     def from_env(cls) -> Config:
@@ -48,7 +48,7 @@ class Config:
                 _setting(file_values, "GEMINI_SECURE_1PSIDTS", "gemini_secure_1psidts", None)
             ),
             gemini_temporary=_boolean(
-                _setting(file_values, "RAVA_GEMINI_TEMPORARY", "gemini_temporary", True)
+                _setting(file_values, "RAVA_GEMINI_TEMPORARY", "gemini_temporary", False)
             ),
         )
 

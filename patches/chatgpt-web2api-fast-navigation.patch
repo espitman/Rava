@@ -1,0 +1,76 @@
+diff --git a/src/chatgpt_web2api/api_server.py b/src/chatgpt_web2api/api_server.py
+index 11b6fb7..0d9d053 100644
+--- a/src/chatgpt_web2api/api_server.py
++++ b/src/chatgpt_web2api/api_server.py
+@@ -442,25 +442,17 @@ class APIServer:
+
+                 # Decide: continue existing conversation or start fresh?
+                 if conversation_id:
+-                    # Explicit conversation_id from client — navigate to it
+-                    await self._driver.navigate_conversation(conversation_id)
++                    # Reuse the live page when it is already on this chat. The
++                    # guard navigates only when another request moved the tab.
++                    await self._driver.ensure_current_conversation(conversation_id)
+                 else:
+-                    # Absence of an explicit conversation id always means a
+-                    # fresh chat. Implicitly reusing the sidecar's last chat
+-                    # can leak context between independent API clients.
+-                    await self._driver.navigate_new_chat(gizmo_id=project_id)
++                    # Put the model on the initial project route. This avoids a
++                    # second full page navigation for every new conversation.
++                    await self._driver.navigate_new_chat(
++                        gizmo_id=project_id, model_slug=model_slug
++                    )
+                     self._last_project_id = project_id
+
+-                # Select only after navigation. The modern ChatGPT UI uses a
+-                # model route fallback, so selecting before navigate_new_chat
+-                # would immediately reset the requested model to auto.
+-                if model_slug and model_slug != "auto":
+-                    selected = await self._driver.select_model(model_slug)
+-                    if not selected:
+-                        raise RuntimeError(
+-                            f"Requested model '{model_slug}' could not be selected; request aborted"
+-                        )
+-
+                 if stream:
+                     return await self._stream_response(request, model_slug, full_text, timeout)
+                 else:
+diff --git a/src/chatgpt_web2api/cdp_driver.py b/src/chatgpt_web2api/cdp_driver.py
+index 39356f6..a0b9d5f 100644
+--- a/src/chatgpt_web2api/cdp_driver.py
++++ b/src/chatgpt_web2api/cdp_driver.py
+@@ -1232,10 +1232,13 @@ class CDPDriver:
+
+     # ── Navigation ────────────────────────────────────────────
+
+-    async def navigate_new_chat(self, gizmo_id: str = None) -> None:
+-        """Navigate to a fresh chat. Optionally scope to a project gizmo."""
++    async def navigate_new_chat(
++        self, gizmo_id: str = None, model_slug: str = None
++    ) -> None:
++        """Navigate to a fresh chat with the requested model in one page load."""
++        route_model = urllib.parse.quote(model_slug or "auto", safe="")
+         if gizmo_id:
+-            url = f"https://chatgpt.com/g/{gizmo_id}/project"
++            url = f"https://chatgpt.com/g/{gizmo_id}/project?model={route_model}"
+         else:
+             # The bare ``chatgpt.com/`` home shell renders only the hidden
+             # fallback textarea (``name=prompt-textarea``, no id, not visible),
+@@ -1244,7 +1247,7 @@ class CDPDriver:
+             # ``?model=auto`` query triggers the SPA to render the real
+             # ProseMirror composer reliably. Verified live: bare home → no
+             # composer after 20s; ``?model=auto`` → composer present.
+-            url = "https://chatgpt.com/?model=auto"
++            url = f"https://chatgpt.com/?model={route_model}"
+         logger.info("Navigate: %s", url)
+         await self._cdp("Page.navigate", {"url": url})
+         await asyncio.sleep(2)
+@@ -1279,6 +1282,7 @@ class CDPDriver:
+         # Settle time for sentinel init
+         await asyncio.sleep(2)
+         self._current_conv_id = None
++        self._current_model = model_slug or "auto"
+
+     async def _has_composer(self) -> bool:
+         """Is a send-capable composer present on the live tab?
