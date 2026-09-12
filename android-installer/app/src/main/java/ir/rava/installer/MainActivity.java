@@ -65,6 +65,9 @@ import java.util.regex.Pattern;
 @SuppressLint({"SetTextI18n", "UnspecifiedRegisterReceiverFlag"})
 public class MainActivity extends Activity {
     private static final int RUN_PERMISSION_REQUEST = 41;
+    private static final int PAGE_SETUP = 0;
+    private static final int PAGE_CHAT = 1;
+    private static final int PAGE_ARCHIVE = 2;
     private static final String CHAT_ARCHIVE_PREFS = "chat_archive";
     private static final String CHAT_ARCHIVE_KEY = "chats";
     private static final String ENABLE_EXTERNAL_APPS =
@@ -84,6 +87,13 @@ public class MainActivity extends Activity {
     private TextView emptyChat;
     private TextView chatStatus;
     private ImageButton sendButton;
+    private View setupPage;
+    private View chatPage;
+    private View archivePage;
+    private LinearLayout archiveContent;
+    private ImageButton setupDestination;
+    private ImageButton chatDestination;
+    private ImageButton archiveDestination;
     private String conversationId;
     private String currentChatId;
     private String currentModel;
@@ -129,34 +139,29 @@ public class MainActivity extends Activity {
         root.setBackgroundColor(Color.rgb(247, 247, 252));
 
         FrameLayout pages = new FrameLayout(this);
-        View setupPage = buildSetupUi();
-        View chatPage = buildChatUi();
+        setupPage = buildSetupUi();
+        chatPage = buildChatUi();
+        archivePage = buildArchiveUi();
         pages.addView(setupPage, new FrameLayout.LayoutParams(-1, -1));
         pages.addView(chatPage, new FrameLayout.LayoutParams(-1, -1));
+        pages.addView(archivePage, new FrameLayout.LayoutParams(-1, -1));
         chatPage.setVisibility(View.GONE);
+        archivePage.setVisibility(View.GONE);
 
         LinearLayout navigation = new LinearLayout(this);
         navigation.setOrientation(LinearLayout.HORIZONTAL);
         navigation.setPadding(dp(18), 0, dp(18), 0);
         navigation.setBackgroundColor(Color.WHITE);
-        ImageButton setupDestination = navigationItem(R.drawable.ic_home, "Setup", true);
-        ImageButton chatDestination = navigationItem(R.drawable.ic_chat, "Chat", false);
+        setupDestination = navigationItem(R.drawable.ic_home, "Setup", true);
+        chatDestination = navigationItem(R.drawable.ic_chat, "Chat", false);
+        archiveDestination = navigationItem(R.drawable.ic_history, "Archive", false);
         navigation.addView(setupDestination, new LinearLayout.LayoutParams(0, dp(50), 1));
         navigation.addView(chatDestination, new LinearLayout.LayoutParams(0, dp(50), 1));
+        navigation.addView(archiveDestination, new LinearLayout.LayoutParams(0, dp(50), 1));
 
-        setupDestination.setOnClickListener(view -> {
-            setupPage.setVisibility(View.VISIBLE);
-            chatPage.setVisibility(View.GONE);
-            styleNavigationItem(setupDestination, true);
-            styleNavigationItem(chatDestination, false);
-        });
-        chatDestination.setOnClickListener(view -> {
-            setupPage.setVisibility(View.GONE);
-            chatPage.setVisibility(View.VISIBLE);
-            styleNavigationItem(setupDestination, false);
-            styleNavigationItem(chatDestination, true);
-            if (modelAdapter.isEmpty()) loadModels();
-        });
+        setupDestination.setOnClickListener(view -> navigateToPage(PAGE_SETUP));
+        chatDestination.setOnClickListener(view -> navigateToPage(PAGE_CHAT));
+        archiveDestination.setOnClickListener(view -> navigateToPage(PAGE_ARCHIVE));
 
         root.addView(pages, new LinearLayout.LayoutParams(-1, 0, 1));
         View topShadow = new View(this);
@@ -166,6 +171,22 @@ public class MainActivity extends Activity {
         root.addView(topShadow, new LinearLayout.LayoutParams(-1, dp(5)));
         root.addView(navigation, new LinearLayout.LayoutParams(-1, dp(48)));
         return root;
+    }
+
+    private void navigateToPage(int page) {
+        if (page != PAGE_CHAT) {
+            chatInput.clearFocus();
+            ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
+                    .hideSoftInputFromWindow(chatInput.getWindowToken(), 0);
+        }
+        setupPage.setVisibility(page == PAGE_SETUP ? View.VISIBLE : View.GONE);
+        chatPage.setVisibility(page == PAGE_CHAT ? View.VISIBLE : View.GONE);
+        archivePage.setVisibility(page == PAGE_ARCHIVE ? View.VISIBLE : View.GONE);
+        styleNavigationItem(setupDestination, page == PAGE_SETUP);
+        styleNavigationItem(chatDestination, page == PAGE_CHAT);
+        styleNavigationItem(archiveDestination, page == PAGE_ARCHIVE);
+        if (page == PAGE_CHAT && modelAdapter.isEmpty()) loadModels();
+        if (page == PAGE_ARCHIVE) renderChatArchive();
     }
 
     private View buildSetupUi() {
@@ -266,10 +287,6 @@ public class MainActivity extends Activity {
         header.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
         ImageButton newChat = iconButton(R.drawable.ic_new_chat, "New chat", Color.rgb(32, 30, 34));
         newChat.setOnClickListener(view -> resetChat());
-        ImageButton archive = iconButton(
-                R.drawable.ic_history, "Chat archive", Color.rgb(32, 30, 34));
-        archive.setOnClickListener(view -> showChatArchive());
-        header.addView(archive, new LinearLayout.LayoutParams(dp(48), dp(48)));
         header.addView(newChat, new LinearLayout.LayoutParams(dp(48), dp(48)));
         content.addView(header);
 
@@ -353,6 +370,28 @@ public class MainActivity extends Activity {
         content.addView(composer, composerParams);
 
         return content;
+    }
+
+    private View buildArchiveUi() {
+        LinearLayout page = new LinearLayout(this);
+        page.setOrientation(LinearLayout.VERTICAL);
+        page.setPadding(dp(16), dp(12), dp(16), dp(8));
+        page.setBackgroundColor(Color.WHITE);
+
+        TextView title = chatText("Archive", 22, true);
+        title.setGravity(Gravity.CENTER_VERTICAL);
+        page.addView(title, new LinearLayout.LayoutParams(-1, dp(48)));
+
+        TextView subtitle = chatText("Saved conversations", 13, false);
+        subtitle.setTextColor(Color.rgb(105, 105, 105));
+        page.addView(subtitle);
+
+        archiveContent = new LinearLayout(this);
+        archiveContent.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams contentParams = new LinearLayout.LayoutParams(-1, 0, 1);
+        contentParams.topMargin = dp(12);
+        page.addView(archiveContent, contentParams);
+        return page;
     }
 
     private void prepareTermux() {
@@ -441,6 +480,7 @@ public class MainActivity extends Activity {
                     modelAdapter.clear();
                     modelAdapter.addAll(models);
                     modelAdapter.notifyDataSetChanged();
+                    if (currentModel != null) selectArchivedModel(currentModel);
                     chatStatus.setText(models.isEmpty()
                             ? "The engine returned no available models."
                             : models.size() + " model" + (models.size() == 1 ? "" : "s") + " available");
@@ -850,14 +890,9 @@ public class MainActivity extends Activity {
         return "Untitled chat";
     }
 
-    private void showChatArchive() {
-        ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
-                .hideSoftInputFromWindow(chatInput.getWindowToken(), 0);
+    private void renderChatArchive() {
+        archiveContent.removeAllViews();
         JSONArray chats = readChatArchive();
-
-        LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(14), dp(4), dp(14), dp(8));
 
         if (chats.length() == 0) {
             LinearLayout emptyState = new LinearLayout(this);
@@ -869,29 +904,23 @@ public class MainActivity extends Activity {
             emptyIcon.setImageResource(R.drawable.ic_history);
             emptyIcon.setColorFilter(Color.rgb(145, 145, 145));
             emptyIcon.setContentDescription("No archived chats");
-            LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+            LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(56), dp(56));
             iconParams.gravity = Gravity.CENTER_HORIZONTAL;
             iconParams.bottomMargin = dp(18);
             emptyState.addView(emptyIcon, iconParams);
 
-            TextView emptyTitle = chatText("No chats yet", 18, true);
+            TextView emptyTitle = chatText("No chats yet", 19, true);
             emptyTitle.setGravity(Gravity.CENTER);
             emptyState.addView(emptyTitle, new LinearLayout.LayoutParams(-1, -2));
 
             TextView emptyDescription = chatText(
-                    "Your conversations will appear here after you send a message.", 13, false);
+                    "Your conversations will appear here after you send a message.", 14, false);
             emptyDescription.setTextColor(Color.rgb(105, 105, 105));
             emptyDescription.setGravity(Gravity.CENTER);
             LinearLayout.LayoutParams descriptionParams = new LinearLayout.LayoutParams(-1, -2);
             descriptionParams.topMargin = dp(8);
             emptyState.addView(emptyDescription, descriptionParams);
-            content.addView(emptyState, new LinearLayout.LayoutParams(-1, dp(260)));
-
-            new AlertDialog.Builder(this)
-                    .setTitle("Chat archive")
-                    .setView(content)
-                    .setNegativeButton("Close", null)
-                    .show();
+            archiveContent.addView(emptyState, new LinearLayout.LayoutParams(-1, 0, 1));
             return;
         }
 
@@ -908,13 +937,13 @@ public class MainActivity extends Activity {
         deleteSelected.setEnabled(false);
         actions.addView(selectAll, new LinearLayout.LayoutParams(0, dp(48), 1));
         actions.addView(deleteSelected, new LinearLayout.LayoutParams(0, dp(48), 1));
-        content.addView(actions);
+        archiveContent.addView(actions);
 
         LinearLayout list = new LinearLayout(this);
         list.setOrientation(LinearLayout.VERTICAL);
+        list.setPadding(0, dp(8), 0, dp(8));
         List<CheckBox> checkBoxes = new ArrayList<>();
         Set<String> selectedIds = new HashSet<>();
-        AlertDialog[] dialogRef = new AlertDialog[1];
 
         for (int index = 0; index < chats.length(); index++) {
             JSONObject chat = chats.optJSONObject(index);
@@ -924,7 +953,8 @@ public class MainActivity extends Activity {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(dp(2), dp(8), dp(2), dp(8));
+            row.setPadding(dp(8), dp(10), dp(8), dp(10));
+            row.setBackground(rounded(Color.rgb(247, 247, 249), 16));
 
             CheckBox checkBox = new CheckBox(this);
             checkBox.setContentDescription("Select " + chat.optString("title"));
@@ -940,46 +970,36 @@ public class MainActivity extends Activity {
             LinearLayout labels = new LinearLayout(this);
             labels.setOrientation(LinearLayout.VERTICAL);
             labels.setPadding(dp(4), dp(4), dp(8), dp(4));
-            TextView title = chatText(chat.optString("title", "Untitled chat"), 15, true);
+            TextView chatTitle = chatText(chat.optString("title", "Untitled chat"), 15, true);
             TextView detail = chatText(chat.optString("model"), 11, false);
             detail.setTextColor(Color.rgb(105, 105, 105));
-            labels.addView(title);
+            labels.addView(chatTitle);
             labels.addView(detail);
-            labels.setOnClickListener(view -> {
-                dialogRef[0].dismiss();
-                openArchivedChat(chat);
-            });
+            labels.setOnClickListener(view -> openArchivedChat(chat));
             row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
 
             ImageButton delete = iconButton(
-                    android.R.drawable.ic_menu_delete, "Delete chat", Color.rgb(176, 0, 32));
+                    R.drawable.ic_delete, "Delete chat", Color.rgb(176, 0, 32));
             delete.setOnClickListener(view -> confirmDeleteChats(
-                    java.util.Collections.singleton(chatId), dialogRef[0]));
+                    java.util.Collections.singleton(chatId)));
             row.addView(delete, new LinearLayout.LayoutParams(dp(48), dp(48)));
-            list.addView(row, new LinearLayout.LayoutParams(-1, -2));
+
+            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+            rowParams.bottomMargin = dp(8);
+            list.addView(row, rowParams);
         }
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(list);
-        content.addView(scroll, new LinearLayout.LayoutParams(-1, dp(420)));
+        archiveContent.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
         selectAll.setOnClickListener(view -> {
             boolean shouldSelect = selectedIds.size() != checkBoxes.size();
             for (CheckBox checkBox : checkBoxes) checkBox.setChecked(shouldSelect);
-            selectAll.setText(shouldSelect ? "Clear selection" : "Select all");
         });
         deleteSelected.setOnClickListener(view -> {
-            if (!selectedIds.isEmpty()) {
-                confirmDeleteChats(new HashSet<>(selectedIds), dialogRef[0]);
-            }
+            if (!selectedIds.isEmpty()) confirmDeleteChats(new HashSet<>(selectedIds));
         });
-
-        dialogRef[0] = new AlertDialog.Builder(this)
-                .setTitle("Chat archive")
-                .setView(content)
-                .setNegativeButton("Close", null)
-                .create();
-        dialogRef[0].show();
     }
 
     private void openArchivedChat(JSONObject chat) {
@@ -998,6 +1018,7 @@ public class MainActivity extends Activity {
                 TextView bubble = addMessageBubble(user ? "You" : currentModel, text, user);
                 if (!user) renderRichAnswer(bubble, text);
             }
+            navigateToPage(PAGE_CHAT);
             selectArchivedModel(currentModel);
             chatStatus.setText("Archived conversation");
             focusChatInput();
@@ -1017,7 +1038,7 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void confirmDeleteChats(Set<String> ids, AlertDialog archiveDialog) {
+    private void confirmDeleteChats(Set<String> ids) {
         int count = ids.size();
         new AlertDialog.Builder(this)
                 .setTitle(count == 1 ? "Delete this chat?" : "Delete " + count + " chats?")
@@ -1025,8 +1046,7 @@ public class MainActivity extends Activity {
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Delete", (dialog, which) -> {
                     deleteArchivedChats(ids);
-                    archiveDialog.dismiss();
-                    if (readChatArchive().length() > 0) showChatArchive();
+                    renderChatArchive();
                 })
                 .show();
     }
@@ -1040,7 +1060,14 @@ public class MainActivity extends Activity {
         }
         getSharedPreferences(CHAT_ARCHIVE_PREFS, MODE_PRIVATE)
                 .edit().putString(CHAT_ARCHIVE_KEY, kept.toString()).apply();
-        if (currentChatId != null && ids.contains(currentChatId)) resetChat();
+        if (currentChatId != null && ids.contains(currentChatId)) {
+            conversationId = null;
+            currentChatId = null;
+            currentModel = null;
+            currentMessages = new JSONArray();
+            clearChatTranscript();
+            chatStatus.setText("New conversation ready");
+        }
     }
 
     private void focusChatInput() {
@@ -1174,6 +1201,7 @@ public class MainActivity extends Activity {
     }
 
     private void styleNavigationItem(ImageButton item, boolean selected) {
+        item.setSelected(selected);
         item.setColorFilter(selected ? Color.rgb(103, 80, 164) : Color.rgb(32, 30, 34));
         item.setBackgroundColor(Color.TRANSPARENT);
     }

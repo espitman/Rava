@@ -90,9 +90,9 @@ The graphical setup app performs these steps:
 
 After startup, choose **Chat** in the bottom navigation, reload the model list, select a
 model, and send a message. The test client continues the same conversation
-until **New chat** is tapped. Use the history button in the chat header to reopen
-saved conversations. Archive entries can be deleted individually or selected in
-bulk; every deletion requires confirmation.
+until **New chat** is tapped. Choose **Archive** in the bottom navigation to browse
+saved conversations, reopen one, and continue it in Chat. Archive entries can be
+deleted individually or selected in bulk; every deletion requires confirmation.
 
 Build the app from source:
 
