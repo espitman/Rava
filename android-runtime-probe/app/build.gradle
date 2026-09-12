@@ -1,0 +1,87 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'ir.rava.runtimeprobe'
+    compileSdk 35
+
+    defaultConfig {
+        applicationId 'ir.rava.runtimeprobe'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '0.1.0'
+
+        ndk {
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    ndkVersion '27.2.12479018'
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packagingOptions {
+        jniLibs {
+            // The Node PIE is deliberately packaged under lib/<abi> so Android
+            // installs it in the app's read-only nativeLibraryDir.
+            useLegacyPackaging true
+            // Keep the Sigstore-verified Codex release byte-for-byte identical.
+            keepDebugSymbols += ['**/libnode_runtime.so', '**/libcodex_app_server.so']
+        }
+    }
+
+    sourceSets {
+        main {
+            jniLibs.srcDir layout.buildDirectory.dir('generated/native-probe')
+        }
+    }
+
+    lint {
+        // The first feasibility gate explicitly targets a physical arm64 phone.
+        disable 'ChromeOsAbiSupport'
+    }
+}
+
+def nativeProbeOutput = layout.buildDirectory.dir('generated/native-probe')
+def pinnedNdkDirectory = new File(android.sdkDirectory, "ndk/${android.ndkVersion}")
+
+tasks.register('buildNativeProbe', Exec) {
+    description = 'Builds the arm64 smoke-test executable for APK native packaging.'
+    inputs.files(
+            layout.projectDirectory.file('src/main/cpp/probe_main.c'),
+            layout.projectDirectory.file('../scripts/build-native-probe.sh'))
+    outputs.dir(nativeProbeOutput)
+    environment 'ANDROID_NDK_HOME', pinnedNdkDirectory.absolutePath
+    commandLine layout.projectDirectory.file('../scripts/build-native-probe.sh').asFile,
+            nativeProbeOutput.get().asFile
+}
+
+tasks.named('preBuild').configure {
+    dependsOn tasks.named('buildNativeProbe')
+}
+
+tasks.register('verifyRuntimeInputs') {
+    doLast {
+        def nodeRuntime = file('src/main/jniLibs/arm64-v8a/libnode_runtime.so')
+        def geminiBundle = file('src/main/assets/gemini/gemini.js')
+        if (!nodeRuntime.isFile()) {
+            throw new GradleException("Missing ${nodeRuntime}; run scripts/prepare-termux-node-runtime.sh")
+        }
+        if (!geminiBundle.isFile()) {
+            throw new GradleException("Missing ${geminiBundle}; run scripts/fetch-gemini-cli.sh")
+        }
+    }
+}
+
+tasks.register('assembleRuntimeProbe') {
+    dependsOn 'verifyRuntimeInputs', 'assembleDebug'
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}

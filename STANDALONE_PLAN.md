@@ -1,6 +1,7 @@
 # Rava Standalone Android Implementation Plan
 
-Status: proposed implementation; Android runtime feasibility is not yet proven.
+Status: standalone Android runtime startup is proven; provider authentication and
+conversation flows remain unverified.
 
 ## Decision and scope
 
@@ -56,27 +57,61 @@ the legacy engine and remains a historical record.
   - مدل: `نامشخص (خانواده GPT-5؛ شناسه دقیق runtime گزارش نشده)`؛ ابزار: `Codex`، `Gradle` و `pytest`
   - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
   - نتیجه: `docs/LEGACY_BASELINE.md`؛ تست Python برابر ۲۱ مورد و build/lint اندروید موفق بود.
-- [ ] Add a separate runtime-probe module/application ID. Keep the current Rava
+- [x] Add a separate runtime-probe module/application ID. Keep the current Rava
   installation usable while feasibility is tested.
+  - Model: `gpt-5.6-sol`; tool: Codex agent
+  - Tokens: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - Result: `android-runtime-probe/`; host unit tests, lint, APK build, ELF inspection,
+    and APK alignment checks pass. The real-device gate remains open.
 
 Do not delete the repository or discard the uncommitted changes. Do not publish
 or push the snapshot automatically as part of this plan.
 
 ## Phase 1 — Build an Android runtime probe
 
-- [ ] Record the real device's Android version, ABI, page size, and available
+- [x] Record the real device's Android version, ABI, page size, and available
   storage; begin with arm64-v8a. Use the physical phone, not an emulator.
-- [ ] Pin exact upstream revisions and toolchain versions. Record artifact hashes,
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: `FEASIBILITY_REPORT.md`؛ probe بومی روی Xiaomi 2107113SG با Android 14،
+    ABI برابر `arm64-v8a`، page size برابر 4096، خروجی فارسی و exit code صفر اجرا شد.
+- [x] Pin exact upstream revisions and toolchain versions. Record artifact hashes,
   licenses, local patches, and reproducible build commands.
-- [ ] Build or obtain a verified Android-compatible Node runtime meeting Gemini's
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent`، `curl`، `npm` و `llvm-readelf`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: نسخه‌ها، URLها، اندازه‌ها، SHA-256 بسته‌های رسمی Termux و npm integrity
+    در `android-runtime-probe/versions.env` و `termux-runtime-packages.tsv` ثبت شد؛
+    مجوزهای کامل runtime نیز داخل APK بسته‌بندی شدند.
+- [x] Build or obtain a verified Android-compatible Node runtime meeting Gemini's
   selected version requirements. Verify native dependencies and TLS certificates.
-- [ ] Package Node in the probe APK with a supported native loading arrangement;
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent`، `llvm-readelf`، `Gradle` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: Node رسمی Termux `24.18.0-1` با interpreter اندروید، dependency closure
+    کامل، RUNPATH برابر `$ORIGIN` و TLS/HTTPS موفق روی Android 14/arm64 تأیید شد.
+- [x] Package Node in the probe APK with a supported native loading arrangement;
   run JavaScript, HTTPS, file I/O, Unicode/Farsi, and a clean shutdown/restart.
-- [ ] Attempt to build Codex app-server for Android/ARM64. Audit dependencies,
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent`، `Gradle` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: Node از `nativeLibraryDir` با UID اپ اجرا شد؛ فایل فارسی، `Intl fa-IR`،
+    DNS، HTTPS 204، child-process shell، restart count 8، stderr خالی و exit code
+    صفر حتی هنگام disable بودن `com.termux` ثبت شد. Gemini CLI `0.59.0` نیز از
+    bundle داخل همان APK مقدار نسخه را با exit code صفر برگرداند.
+- [x] Attempt to build Codex app-server for Android/ARM64. Audit dependencies,
   filesystem assumptions, locks, process spawning, and sandbox startup. Document
   blockers before choosing any compatibility fallback.
-- [ ] Package the Codex executable and required helpers using APK-native packaging;
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent`، `Cargo` و `cosign`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: تلاش source-build به‌دلیل کمبود فضای میزبان به‌صورت کنترل‌شده متوقف شد؛
+    cross-check وابستگی‌های Android موفق بود و fallback رسمی Linux/musl با هش و
+    Sigstore دقیق OpenAI تأیید شد. ریسک‌های keyring، SQLite، PTY و sandbox در
+    `android-runtime-probe/CODEX_ANDROID.md` ثبت شده‌اند.
+- [x] Package the Codex executable and required helpers using APK-native packaging;
   launch from the app UID and complete a JSON-RPC initialize exchange over pipes.
+  - مدل: `gpt-5.6-sol`؛ ابزار: `Codex agent`، `Gradle` و `ADB`
+  - توکن: نامشخص — آمار دقیق مصرف این تسک در دسترس نیست.
+  - نتیجه: Codex app-server `0.154.0` از `nativeLibraryDir` و UID اپ روی Android
+    14/arm64 اجرا شد، پاسخ معتبر `initialize` داد و با کد صفر خاتمه یافت؛ خطای
+    startup-lock تروموکس بازتولید نشد.
 - [ ] Check native ELF and APK alignment for applicable 4 KB/16 KB devices and
   verify operation under the intended modern target SDK.
 

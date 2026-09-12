@@ -1,0 +1,10 @@
+.gradle/
+scripts/__pycache__/
+build/
+app/build/
+app/src/main/assets/gemini/
+app/src/main/assets/termux-node-licenses/
+app/src/main/jniLibs/
+downloads/
+work/
+local.properties
