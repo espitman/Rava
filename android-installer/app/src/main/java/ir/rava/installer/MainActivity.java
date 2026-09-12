@@ -10,6 +10,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -25,6 +26,7 @@ import android.text.method.ScrollingMovementMethod;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.ArrayAdapter;
@@ -38,6 +40,7 @@ import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.Spinner;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -67,6 +70,10 @@ public class MainActivity extends Activity {
     private static final int PAGE_SETUP = 0;
     private static final int PAGE_CHAT = 1;
     private static final int PAGE_ARCHIVE = 2;
+    private static final int PAGE_SETTINGS = 3;
+    private static final int STATUS_PENDING = 0;
+    private static final int STATUS_READY = 1;
+    private static final int STATUS_ACTION = 2;
     private static final String CHAT_ARCHIVE_PREFS = "chat_archive";
     private static final String CHAT_ARCHIVE_KEY = "chats";
     private static final String ENABLE_EXTERNAL_APPS =
@@ -75,6 +82,11 @@ public class MainActivity extends Activity {
             "!\\[([^\\]]*)\\]\\((https://[^\\s)]+)\\)");
 
     private TextView prerequisites;
+    private TextView termuxStatus;
+    private TextView termuxPermissionStatus;
+    private TextView antigravityStatus;
+    private TextView googleStatus;
+    private TextView codexStatus;
     private TextView progress;
     private TextView output;
     private ProgressBar spinner;
@@ -90,10 +102,12 @@ public class MainActivity extends Activity {
     private View setupPage;
     private View chatPage;
     private View archivePage;
+    private View settingsPage;
     private LinearLayout archiveContent;
     private ImageButton setupDestination;
     private ImageButton chatDestination;
     private ImageButton archiveDestination;
+    private ImageButton settingsDestination;
     private String conversationId;
     private String currentChatId;
     private String currentModel;
@@ -106,21 +120,47 @@ public class MainActivity extends Activity {
     private TextView activeAnswerBubble;
     private Runnable activeTypingAnimation;
     private final AtomicInteger chatGeneration = new AtomicInteger();
+    private final AtomicInteger setupStatusGeneration = new AtomicInteger();
+    private int currentPage = PAGE_SETUP;
+    private boolean codexLoginPending;
+    private boolean darkMode;
+    private int termuxState = STATUS_PENDING;
+    private int permissionState = STATUS_PENDING;
+    private int antigravityState = STATUS_PENDING;
+    private int googleState = STATUS_PENDING;
+    private int codexState = STATUS_PENDING;
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
     private final BroadcastReceiver resultReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             renderLastResult();
+            if (currentPage == PAGE_SETUP) refreshSetupStatus();
         }
     };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        SharedPreferences appearance = getSharedPreferences("appearance", MODE_PRIVATE);
+        darkMode = appearance.contains("dark_mode")
+                ? appearance.getBoolean("dark_mode", false)
+                : (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+                        == Configuration.UI_MODE_NIGHT_YES;
+        applySystemBars();
         chatTypeface = getResources().getFont(R.font.vazirmatn_regular);
         antigravityProvider = new AntigravityProvider(this);
         codexProvider = new CodexProvider(this);
+        if (savedInstanceState != null) {
+            currentPage = savedInstanceState.getInt("current_page", PAGE_SETUP);
+        }
         setTitle("Rava Setup");
         setContentView(buildUi());
+        if (currentPage != PAGE_SETUP) navigateToPage(currentPage);
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        outState.putInt("current_page", currentPage);
+        super.onSaveInstanceState(outState);
     }
 
     @Override
@@ -132,7 +172,7 @@ public class MainActivity extends Activity {
         } else {
             registerReceiver(resultReceiver, filter);
         }
-        refreshPrerequisites();
+        refreshSetupStatus();
         renderLastResult();
     }
 
@@ -140,6 +180,13 @@ public class MainActivity extends Activity {
     protected void onStop() {
         unregisterReceiver(resultReceiver);
         super.onStop();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == RUN_PERMISSION_REQUEST) refreshSetupStatus();
     }
 
     @Override
@@ -152,32 +199,38 @@ public class MainActivity extends Activity {
     private View buildUi() {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.rgb(247, 247, 252));
+        root.setBackgroundColor(screenColor());
 
         FrameLayout pages = new FrameLayout(this);
         setupPage = buildSetupUi();
         chatPage = buildChatUi();
         archivePage = buildArchiveUi();
+        settingsPage = buildSettingsUi();
         pages.addView(setupPage, new FrameLayout.LayoutParams(-1, -1));
         pages.addView(chatPage, new FrameLayout.LayoutParams(-1, -1));
         pages.addView(archivePage, new FrameLayout.LayoutParams(-1, -1));
+        pages.addView(settingsPage, new FrameLayout.LayoutParams(-1, -1));
         chatPage.setVisibility(View.GONE);
         archivePage.setVisibility(View.GONE);
+        settingsPage.setVisibility(View.GONE);
 
         LinearLayout navigation = new LinearLayout(this);
         navigation.setOrientation(LinearLayout.HORIZONTAL);
         navigation.setPadding(dp(18), 0, dp(18), 0);
-        navigation.setBackgroundColor(Color.WHITE);
+        navigation.setBackgroundColor(navigationColor());
         setupDestination = navigationItem(R.drawable.ic_home, "Setup", true);
         chatDestination = navigationItem(R.drawable.ic_chat, "Chat", false);
         archiveDestination = navigationItem(R.drawable.ic_history, "Archive", false);
+        settingsDestination = navigationItem(R.drawable.ic_settings, "Settings", false);
         navigation.addView(setupDestination, new LinearLayout.LayoutParams(0, dp(50), 1));
         navigation.addView(chatDestination, new LinearLayout.LayoutParams(0, dp(50), 1));
         navigation.addView(archiveDestination, new LinearLayout.LayoutParams(0, dp(50), 1));
+        navigation.addView(settingsDestination, new LinearLayout.LayoutParams(0, dp(50), 1));
 
         setupDestination.setOnClickListener(view -> navigateToPage(PAGE_SETUP));
         chatDestination.setOnClickListener(view -> navigateToPage(PAGE_CHAT));
         archiveDestination.setOnClickListener(view -> navigateToPage(PAGE_ARCHIVE));
+        settingsDestination.setOnClickListener(view -> navigateToPage(PAGE_SETTINGS));
 
         root.addView(pages, new LinearLayout.LayoutParams(-1, 0, 1));
         View topShadow = new View(this);
@@ -190,6 +243,7 @@ public class MainActivity extends Activity {
     }
 
     private void navigateToPage(int page) {
+        currentPage = page;
         if (page != PAGE_CHAT) {
             chatInput.clearFocus();
             ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
@@ -198,108 +252,128 @@ public class MainActivity extends Activity {
         setupPage.setVisibility(page == PAGE_SETUP ? View.VISIBLE : View.GONE);
         chatPage.setVisibility(page == PAGE_CHAT ? View.VISIBLE : View.GONE);
         archivePage.setVisibility(page == PAGE_ARCHIVE ? View.VISIBLE : View.GONE);
+        settingsPage.setVisibility(page == PAGE_SETTINGS ? View.VISIBLE : View.GONE);
         styleNavigationItem(setupDestination, page == PAGE_SETUP);
         styleNavigationItem(chatDestination, page == PAGE_CHAT);
         styleNavigationItem(archiveDestination, page == PAGE_ARCHIVE);
+        styleNavigationItem(settingsDestination, page == PAGE_SETTINGS);
         if (page == PAGE_CHAT && modelAdapter.isEmpty()) loadModels();
         if (page == PAGE_ARCHIVE) renderChatArchive();
+        if (page == PAGE_SETUP) refreshSetupStatus();
     }
 
     private View buildSetupUi() {
         int pad = dp(16);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(pad, pad, pad, pad);
+        content.setPadding(pad, dp(12), pad, dp(28));
         content.setLayoutDirection(View.LAYOUT_DIRECTION_LTR);
-        content.setBackgroundColor(Color.rgb(247, 247, 252));
+        content.setBackgroundColor(screenColor());
 
-        LinearLayout hero = new LinearLayout(this);
-        hero.setOrientation(LinearLayout.VERTICAL);
-        hero.setPadding(dp(20), dp(20), dp(20), dp(20));
-        hero.setBackground(rounded(Color.rgb(83, 55, 150), 24));
-        hero.setElevation(dp(4));
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(dp(4), dp(4), dp(4), dp(8));
 
-        TextView badge = text("R", 24, true);
-        badge.setTextColor(Color.rgb(83, 55, 150));
+        TextView badge = text("R", 20, true);
+        badge.setTextColor(Color.WHITE);
         badge.setGravity(Gravity.CENTER);
-        badge.setBackground(rounded(Color.WHITE, 14));
-        hero.addView(badge, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        badge.setBackground(rounded(Color.rgb(103, 80, 164), 14));
+        header.addView(badge, new LinearLayout.LayoutParams(dp(44), dp(44)));
 
-        TextView title = text("Rava Setup", 29, true);
-        title.setTextColor(Color.WHITE);
-        LinearLayout.LayoutParams titleParams = spaced();
-        titleParams.topMargin = dp(16);
-        hero.addView(title, titleParams);
-        TextView subtitle = text("Install, connect, and run your local AI engine", 15, false);
-        subtitle.setTextColor(Color.rgb(232, 224, 255));
-        hero.addView(subtitle, smallGap());
-        content.addView(hero);
+        LinearLayout headerCopy = new LinearLayout(this);
+        headerCopy.setOrientation(LinearLayout.VERTICAL);
+        headerCopy.setPadding(dp(12), 0, 0, 0);
+        TextView title = text("Rava", 24, true);
+        title.setTextColor(primaryTextColor());
+        headerCopy.addView(title);
+        TextView subtitle = text("AI engines on this phone", 13, false);
+        subtitle.setTextColor(secondaryTextColor());
+        headerCopy.addView(subtitle);
+        header.addView(headerCopy, new LinearLayout.LayoutParams(0, -2, 1));
 
-        TextView section = text("DEVICE READINESS", 12, true);
-        section.setTextColor(Color.rgb(103, 80, 164));
-        section.setLetterSpacing(0.08f);
+        TextView refreshStatus = compactAction("Refresh", view -> refreshSetupStatus());
+        header.addView(refreshStatus, new LinearLayout.LayoutParams(dp(82), dp(38)));
+        content.addView(header);
+
+        prerequisites = text("Checking your setup…", 16, true);
+        prerequisites.setPadding(dp(16), dp(14), dp(16), dp(14));
+        prerequisites.setBackground(rounded(softAccentColor(), 16));
+        content.addView(prerequisites, spaced());
+
+        TextView section = sectionTitle("GOOGLE · GEMINI");
         content.addView(section, sectionGap());
 
-        prerequisites = text("", 15, true);
-        prerequisites.setPadding(dp(16), dp(15), dp(16), dp(15));
-        prerequisites.setBackground(rounded(Color.rgb(238, 234, 247), 18));
-        content.addView(prerequisites, smallGap());
+        LinearLayout googleCard = setupCard();
+        termuxStatus = addSetupRow(googleCard, "Termux", "Required host app", "Open",
+                view -> launchPackage(TermuxBridge.TERMUX_PACKAGE,
+                        "https://github.com/termux/termux-app/releases"), true);
+        termuxPermissionStatus = addSetupRow(googleCard, "Command access",
+                "Lets Rava start the CLI", "Enable", view -> {
+                    if (!isInstalled(TermuxBridge.TERMUX_PACKAGE)) {
+                        launchPackage(TermuxBridge.TERMUX_PACKAGE,
+                                "https://github.com/termux/termux-app/releases");
+                    } else if (checkSelfPermission(TermuxBridge.RUN_PERMISSION)
+                            != PackageManager.PERMISSION_GRANTED) {
+                        boolean prepared = getSharedPreferences("setup_state", MODE_PRIVATE)
+                                .getBoolean("termux_access_prepared", false);
+                        if (prepared) requestRunPermission(); else prepareTermux();
+                    } else {
+                        showMessage("Termux access is already enabled.");
+                    }
+                }, true);
+        antigravityStatus = addSetupRow(googleCard, "Antigravity CLI",
+                "Google's command-line engine", "Install", view -> installAntigravity(), true);
+        googleStatus = addSetupRow(googleCard, "Google account",
+                "Used only by Google's official CLI", "Sign in",
+                view -> startAntigravityLogin(), false);
+        content.addView(googleCard);
 
-        section = text("SETUP STEPS", 12, true);
-        section.setTextColor(Color.rgb(103, 80, 164));
-        section.setLetterSpacing(0.08f);
+        section = sectionTitle("OPENAI · CODEX");
         content.addView(section, sectionGap());
 
-        addStep(content, "01", "Install Termux", "Install the official Termux APK once. Android will ask you to approve the installation.", "OPEN PAGE", view -> launchPackage(TermuxBridge.TERMUX_PACKAGE, "https://github.com/termux/termux-app/releases"));
-        addStep(content, "02", "Enable Termux access", "Copy the one-time setting, paste it in Termux, and press Enter.", "OPEN TERMUX", view -> prepareTermux());
-        addStep(content, "03", "Grant command permission", "Allow Rava to send bounded commands to Termux.", "GRANT", view -> requestRunPermission());
-        addStep(content, "04", "Install Antigravity", "Rava verifies pinned hashes and installs Google's official ARM64 CLI and required Termux packages.", "INSTALL", view -> installAntigravity());
-        addStep(content, "05", "Sign in to Google", "A visible Termux session prints Google's URL and code. Open the URL, enter the code, then return.", "SIGN IN", view -> startAntigravityLogin());
-        addStep(content, "06", "Check Google models", "Verify the saved login and load the model list without reading credentials.", "CHECK", view -> loadModels());
-        addStep(content, "07", "ChatGPT / Codex", "Codex runs inside Rava. Use the account controls below.", "CHECK", view -> showMessage("Codex account controls are below."));
+        LinearLayout codexCard = setupCard();
+        TextView runtimeStatus = addSetupRow(codexCard, "Codex runtime",
+                "Included inside Rava", null, null, true);
+        setReadinessStatus(runtimeStatus, "✓ Built in", STATUS_READY);
+        codexStatus = addSetupRow(codexCard, "ChatGPT account",
+                "Your ChatGPT subscription", "Sign in", view -> {
+                    codexLoginPending = true;
+                    codexState = STATUS_PENDING;
+                    setReadinessStatus(codexStatus, "Waiting…", STATUS_PENDING);
+                    updateReadinessSummary();
+                    codexProvider.startLogin(codexAccountListener());
+                }, false);
+        content.addView(codexCard);
 
         codexAuthStatus = text("Codex account has not been checked.", 14, false);
-        codexAuthStatus.setTextIsSelectable(true);
-        codexAuthStatus.setPadding(dp(14), dp(12), dp(14), dp(12));
-        codexAuthStatus.setBackground(rounded(Color.rgb(238, 234, 247), 16));
-        content.addView(codexAuthStatus, smallGap());
-        LinearLayout codexActions = new LinearLayout(this);
-        codexActions.setOrientation(LinearLayout.HORIZONTAL);
-        Button checkCodex = new Button(this);
-        checkCodex.setText("Check Codex");
-        checkCodex.setAllCaps(false);
-        checkCodex.setOnClickListener(view -> codexProvider.readAccount(codexAccountListener()));
-        Button signInCodex = new Button(this);
-        signInCodex.setText("Sign in");
-        signInCodex.setAllCaps(false);
-        signInCodex.setOnClickListener(view -> codexProvider.startLogin(codexAccountListener()));
-        codexActions.addView(checkCodex, new LinearLayout.LayoutParams(0, dp(48), 1));
-        codexActions.addView(signInCodex, new LinearLayout.LayoutParams(0, dp(48), 1));
-        content.addView(codexActions, smallGap());
+        codexAuthStatus.setVisibility(View.GONE);
 
+        section = sectionTitle("SETUP ACTIVITY");
+        content.addView(section, sectionGap());
+        LinearLayout activityCard = setupCard();
+        activityCard.setPadding(dp(16), dp(12), dp(16), dp(14));
         spinner = new ProgressBar(this);
         spinner.setIndeterminate(true);
         spinner.setVisibility(View.GONE);
-        LinearLayout.LayoutParams spinnerParams = new LinearLayout.LayoutParams(dp(42), dp(42));
-        spinnerParams.topMargin = dp(20);
-        content.addView(spinner, spinnerParams);
+        LinearLayout.LayoutParams spinnerParams = new LinearLayout.LayoutParams(dp(28), dp(28));
+        activityCard.addView(spinner, spinnerParams);
 
-        progress = text("Ready", 16, true);
-        progress.setTextColor(Color.rgb(42, 95, 63));
-        content.addView(progress, smallGap());
+        progress = text("No setup task is running", 14, true);
+        progress.setTextColor(primaryTextColor());
+        activityCard.addView(progress, smallGap());
 
         output = text("No command has run yet.", 13, false);
-        output.setTextColor(Color.rgb(225, 231, 239));
+        output.setTextColor(secondaryTextColor());
         output.setTypeface(Typeface.MONOSPACE);
         output.setTextDirection(View.TEXT_DIRECTION_LTR);
         output.setGravity(Gravity.START);
         output.setTextIsSelectable(true);
         output.setMovementMethod(new ScrollingMovementMethod());
-        output.setBackground(rounded(Color.rgb(28, 30, 38), 18));
-        output.setPadding(dp(16), dp(16), dp(16), dp(16));
-        LinearLayout.LayoutParams outputParams = new LinearLayout.LayoutParams(-1, dp(260));
-        outputParams.bottomMargin = dp(24);
-        content.addView(output, outputParams);
+        output.setBackground(rounded(softSurfaceColor(), 12));
+        output.setPadding(dp(12), dp(10), dp(12), dp(10));
+        activityCard.addView(output, new LinearLayout.LayoutParams(-1, dp(112)));
+        content.addView(activityCard);
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(content);
@@ -307,18 +381,19 @@ public class MainActivity extends Activity {
     }
 
     private View buildChatUi() {
-        int pad = dp(12);
+        int pad = dp(16);
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(pad, pad, pad, pad);
-        content.setBackgroundColor(Color.WHITE);
+        content.setBackgroundColor(screenColor());
 
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
         header.setGravity(Gravity.CENTER_VERTICAL);
-        TextView title = chatText("Rava", 22, true);
+        TextView title = chatText("Chat", 24, true);
+        title.setTextColor(primaryTextColor());
         header.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
-        ImageButton newChat = iconButton(R.drawable.ic_new_chat, "New chat", Color.rgb(32, 30, 34));
+        ImageButton newChat = iconButton(R.drawable.ic_new_chat, "New chat", primaryTextColor());
         newChat.setOnClickListener(view -> resetChat());
         header.addView(newChat, new LinearLayout.LayoutParams(dp(48), dp(48)));
         cancelChatButton = iconButton(R.drawable.ic_cancel, "Cancel response", Color.rgb(176, 0, 32));
@@ -331,32 +406,27 @@ public class MainActivity extends Activity {
         modelRow.setOrientation(LinearLayout.HORIZONTAL);
         modelRow.setGravity(Gravity.CENTER_VERTICAL);
         modelSpinner = new Spinner(this);
-        modelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item,
-                new ArrayList<>());
+        modelAdapter = new ThemedModelAdapter();
         modelSpinner.setAdapter(modelAdapter);
-        modelSpinner.setBackground(rounded(Color.rgb(245, 245, 245), 14));
+        modelSpinner.setPadding(dp(8), 0, dp(8), 0);
+        modelSpinner.setBackground(strokedRounded(cardColor(), borderColor(), 14));
         modelRow.addView(modelSpinner, new LinearLayout.LayoutParams(0, dp(46), 1));
-        Button reload = new Button(this);
-        reload.setText("Reload");
-        reload.setAllCaps(false);
-        reload.setTypeface(chatTypeface);
-        reload.setBackground(rounded(Color.rgb(245, 245, 245), 14));
-        reload.setOnClickListener(view -> loadModels());
+        TextView reload = compactAction("Reload", view -> loadModels());
         LinearLayout.LayoutParams reloadParams = new LinearLayout.LayoutParams(dp(92), dp(46));
         reloadParams.leftMargin = dp(8);
         modelRow.addView(reload, reloadParams);
         content.addView(modelRow, smallGap());
 
         chatStatus = chatText("Open Chat after starting the engine.", 12, false);
-        chatStatus.setTextColor(Color.rgb(92, 88, 99));
+        chatStatus.setTextColor(secondaryTextColor());
         content.addView(chatStatus, smallGap());
 
         chatMessages = new LinearLayout(this);
         chatMessages.setOrientation(LinearLayout.VERTICAL);
-        chatMessages.setPadding(dp(2), dp(14), dp(2), dp(14));
+        chatMessages.setPadding(dp(2), dp(18), dp(2), dp(18));
         emptyChat = chatText("How can I help?", 24, true);
         emptyChat.setGravity(Gravity.CENTER);
-        emptyChat.setTextColor(Color.rgb(55, 55, 55));
+        emptyChat.setTextColor(primaryTextColor());
         chatMessages.addView(emptyChat, new LinearLayout.LayoutParams(-1, dp(180)));
         chatScroll = new ScrollView(this);
         chatScroll.setFillViewport(true);
@@ -369,12 +439,15 @@ public class MainActivity extends Activity {
         composer.setOrientation(LinearLayout.HORIZONTAL);
         composer.setGravity(Gravity.BOTTOM);
         composer.setPadding(dp(6), dp(4), dp(5), dp(4));
-        composer.setBackground(rounded(Color.rgb(244, 244, 244), 24));
+        composer.setBackground(strokedRounded(cardColor(), borderColor(), 24));
+        composer.setElevation(dp(2));
 
         chatInput = new EditText(this);
         chatInput.setHint("پیام خود را بنویسید…");
         chatInput.setTextSize(16);
         chatInput.setTypeface(chatTypeface);
+        chatInput.setTextColor(primaryTextColor());
+        chatInput.setHintTextColor(secondaryTextColor());
         chatInput.setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG);
         chatInput.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
         chatInput.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
@@ -398,7 +471,7 @@ public class MainActivity extends Activity {
         composer.addView(chatInput, new LinearLayout.LayoutParams(0, -2, 1));
 
         sendButton = iconButton(R.drawable.ic_send, "Send", Color.WHITE);
-        sendButton.setBackground(rounded(Color.rgb(32, 30, 34), 22));
+        sendButton.setBackground(rounded(Color.rgb(103, 80, 164), 22));
         sendButton.setOnClickListener(view -> sendChatMessage());
         composer.addView(sendButton, new LinearLayout.LayoutParams(dp(44), dp(44)));
         LinearLayout.LayoutParams composerParams = new LinearLayout.LayoutParams(-1, -2);
@@ -413,14 +486,15 @@ public class MainActivity extends Activity {
         LinearLayout page = new LinearLayout(this);
         page.setOrientation(LinearLayout.VERTICAL);
         page.setPadding(dp(16), dp(12), dp(16), dp(8));
-        page.setBackgroundColor(Color.WHITE);
+        page.setBackgroundColor(screenColor());
 
-        TextView title = chatText("Archive", 22, true);
+        TextView title = chatText("Archive", 24, true);
+        title.setTextColor(primaryTextColor());
         title.setGravity(Gravity.CENTER_VERTICAL);
         page.addView(title, new LinearLayout.LayoutParams(-1, dp(48)));
 
         TextView subtitle = chatText("Saved conversations", 13, false);
-        subtitle.setTextColor(Color.rgb(105, 105, 105));
+        subtitle.setTextColor(secondaryTextColor());
         page.addView(subtitle);
 
         archiveContent = new LinearLayout(this);
@@ -431,9 +505,105 @@ public class MainActivity extends Activity {
         return page;
     }
 
+    private View buildSettingsUi() {
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(dp(16), dp(12), dp(16), dp(28));
+        content.setBackgroundColor(screenColor());
+
+        TextView title = chatText("Settings", 24, true);
+        title.setTextColor(primaryTextColor());
+        title.setGravity(Gravity.CENTER_VERTICAL);
+        content.addView(title, new LinearLayout.LayoutParams(-1, dp(52)));
+
+        TextView appearanceTitle = sectionTitle("APPEARANCE");
+        content.addView(appearanceTitle, sectionGap());
+
+        LinearLayout appearanceCard = setupCard();
+        LinearLayout themeRow = new LinearLayout(this);
+        themeRow.setOrientation(LinearLayout.HORIZONTAL);
+        themeRow.setGravity(Gravity.CENTER_VERTICAL);
+        themeRow.setPadding(dp(2), dp(12), dp(2), dp(12));
+        LinearLayout themeCopy = new LinearLayout(this);
+        themeCopy.setOrientation(LinearLayout.VERTICAL);
+        TextView themeTitle = text("Dark mode", 16, true);
+        themeTitle.setTextColor(primaryTextColor());
+        themeCopy.addView(themeTitle);
+        TextView themeDetail = text("Use a dark palette across every screen", 12, false);
+        themeDetail.setTextColor(secondaryTextColor());
+        themeCopy.addView(themeDetail, smallGap());
+        themeRow.addView(themeCopy, new LinearLayout.LayoutParams(0, -2, 1));
+        Switch darkSwitch = new Switch(this);
+        darkSwitch.setContentDescription("Dark mode");
+        darkSwitch.setChecked(darkMode);
+        darkSwitch.setOnCheckedChangeListener((button, checked) -> setDarkMode(checked));
+        themeRow.addView(darkSwitch, new LinearLayout.LayoutParams(dp(56), dp(48)));
+        appearanceCard.addView(themeRow);
+        content.addView(appearanceCard);
+
+        TextView aboutTitle = sectionTitle("ABOUT");
+        content.addView(aboutTitle, sectionGap());
+        LinearLayout aboutCard = setupCard();
+        addInformationRow(aboutCard, "Rava", "Version 1.0.1", true);
+        addInformationRow(aboutCard, "Codex", "Embedded runtime · 6 models", true);
+        addInformationRow(aboutCard, "Gemini", "Antigravity via Termux · 14 models", false);
+        content.addView(aboutCard);
+
+        TextView note = text("Your appearance choice is stored only on this phone.", 12, false);
+        note.setTextColor(secondaryTextColor());
+        content.addView(note, spaced());
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(content);
+        return scroll;
+    }
+
+    private void addInformationRow(LinearLayout parent, String label, String value,
+            boolean divider) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(2), dp(13), dp(2), dp(13));
+        TextView labelView = text(label, 15, true);
+        labelView.setTextColor(primaryTextColor());
+        row.addView(labelView, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView valueView = text(value, 12, false);
+        valueView.setTextColor(secondaryTextColor());
+        valueView.setGravity(Gravity.END);
+        row.addView(valueView, new LinearLayout.LayoutParams(-2, -2));
+        parent.addView(row);
+        if (divider) {
+            View line = new View(this);
+            line.setBackgroundColor(borderColor());
+            parent.addView(line, new LinearLayout.LayoutParams(-1, dp(1)));
+        }
+    }
+
+    private void setDarkMode(boolean enabled) {
+        if (darkMode == enabled) return;
+        getSharedPreferences("appearance", MODE_PRIVATE).edit()
+                .putBoolean("dark_mode", enabled).apply();
+        recreate();
+    }
+
+    private void applySystemBars() {
+        getWindow().setStatusBarColor(screenColor());
+        getWindow().setNavigationBarColor(navigationColor());
+        int flags = 0;
+        if (!darkMode) {
+            flags |= View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                flags |= View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
+            }
+        }
+        getWindow().getDecorView().setSystemUiVisibility(flags);
+    }
+
     private void prepareTermux() {
         ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
         clipboard.setPrimaryClip(ClipData.newPlainText("Enable Rava", ENABLE_EXTERNAL_APPS));
+        getSharedPreferences("setup_state", MODE_PRIVATE).edit()
+                .putBoolean("termux_access_prepared", true).apply();
         Toast.makeText(this, "Command copied. Paste and run it in Termux.", Toast.LENGTH_LONG).show();
         launchPackage(TermuxBridge.TERMUX_PACKAGE, "https://github.com/termux/termux-app/releases");
     }
@@ -483,7 +653,10 @@ public class MainActivity extends Activity {
     private CodexProvider.AccountListener codexAccountListener() {
         return new CodexProvider.AccountListener() {
             @Override public void onStatus(String status) {
-                runOnUiThread(() -> codexAuthStatus.setText(status));
+                runOnUiThread(() -> {
+                    codexAuthStatus.setText(status);
+                    setReadinessStatus(codexStatus, "Checking…", STATUS_PENDING);
+                });
             }
 
             @Override public void onAccount(boolean authenticated, String accountType,
@@ -491,7 +664,14 @@ public class MainActivity extends Activity {
                 String value = authenticated
                         ? "Codex signed in" + (planType == null ? "" : " — " + planType)
                         : "Codex is signed out.";
-                runOnUiThread(() -> codexAuthStatus.setText(value));
+                runOnUiThread(() -> {
+                    codexLoginPending = false;
+                    codexState = authenticated ? STATUS_READY : STATUS_ACTION;
+                    setReadinessStatus(codexStatus,
+                            authenticated ? "✓ Signed in" : "Sign-in required", codexState);
+                    codexAuthStatus.setText(value);
+                    updateReadinessSummary();
+                });
             }
 
             @Override public void onDeviceCode(String verificationUrl, String userCode) {
@@ -505,15 +685,69 @@ public class MainActivity extends Activity {
             }
 
             @Override public void onLoginCompleted(boolean success, String error) {
-                runOnUiThread(() -> codexAuthStatus.setText(success
-                        ? "Codex sign-in completed."
-                        : "Codex sign-in failed: " + (error == null ? "unknown error" : error)));
+                runOnUiThread(() -> {
+                    codexLoginPending = false;
+                    codexAuthStatus.setText(success
+                            ? "Codex sign-in completed."
+                            : "Codex sign-in failed: "
+                                    + (error == null ? "unknown error" : error));
+                    if (success) {
+                        codexState = STATUS_READY;
+                        setReadinessStatus(codexStatus, "✓ Signed in", STATUS_READY);
+                    } else {
+                        codexState = STATUS_ACTION;
+                        setReadinessStatus(codexStatus, "Could not sign in", STATUS_ACTION);
+                    }
+                    updateReadinessSummary();
+                });
             }
 
             @Override public void onError(String error) {
-                runOnUiThread(() -> codexAuthStatus.setText("Codex error: " + error));
+                runOnUiThread(() -> {
+                    codexLoginPending = false;
+                    codexState = STATUS_ACTION;
+                    codexAuthStatus.setText("Codex error: " + error);
+                    setReadinessStatus(codexStatus, "Could not verify", STATUS_ACTION);
+                    updateReadinessSummary();
+                });
             }
         };
+    }
+
+    private void checkCodexAccount(int generation) {
+        codexState = STATUS_PENDING;
+        setReadinessStatus(codexStatus, "Checking…", STATUS_PENDING);
+        updateReadinessSummary();
+        codexProvider.readAccount(new CodexProvider.AccountListener() {
+            @Override public void onStatus(String status) {}
+
+            @Override public void onAccount(boolean authenticated, String accountType,
+                    String planType) {
+                runOnUiThread(() -> {
+                    if (setupStatusGeneration.get() != generation) return;
+                    codexState = authenticated ? STATUS_READY : STATUS_ACTION;
+                    setReadinessStatus(codexStatus,
+                            authenticated ? "✓ Signed in" : "Sign-in required", codexState);
+                    codexAuthStatus.setText(authenticated
+                            ? "Codex signed in" + (planType == null ? "" : " — " + planType)
+                            : "Codex is signed out.");
+                    updateReadinessSummary();
+                });
+            }
+
+            @Override public void onDeviceCode(String verificationUrl, String userCode) {}
+            @Override public void onLoginCompleted(boolean success, String error) {}
+
+            @Override public void onError(String error) {
+                runOnUiThread(() -> {
+                    if (setupStatusGeneration.get() != generation) return;
+                    codexState = STATUS_ACTION;
+                    setReadinessStatus(codexStatus, "Could not verify", STATUS_ACTION);
+                    codexAuthStatus.setText("Codex status could not be checked.");
+                    updateReadinessSummary();
+                });
+            }
+        });
     }
 
     private void showCodexDeviceCode(String verificationUrl, String userCode) {
@@ -731,7 +965,7 @@ public class MainActivity extends Activity {
             ImageView imageView = new ImageView(this);
             imageView.setScaleType(ImageView.ScaleType.CENTER_CROP);
             imageView.setContentDescription(image[1].isEmpty() ? "Response image" : image[1]);
-            imageView.setBackground(rounded(Color.rgb(240, 240, 240), 18));
+            imageView.setBackground(rounded(softSurfaceColor(), 18));
             imageView.setClipToOutline(true);
             imageView.setOnClickListener(view -> startActivity(
                     new Intent(Intent.ACTION_VIEW, Uri.parse(source))));
@@ -814,7 +1048,7 @@ public class MainActivity extends Activity {
         group.setGravity(user ? Gravity.END : Gravity.START);
 
         TextView authorView = chatText(author, 11, true);
-        authorView.setTextColor(Color.rgb(105, 105, 105));
+        authorView.setTextColor(secondaryTextColor());
         group.addView(authorView);
 
         TextView bubble = chatText(message, 16, false);
@@ -822,8 +1056,10 @@ public class MainActivity extends Activity {
         bubble.setLineSpacing(0, 1.15f);
         bubble.setMaxWidth((int) (getResources().getDisplayMetrics().widthPixels * 0.84f));
         bubble.setPadding(dp(14), dp(10), dp(14), dp(10));
-        bubble.setBackground(rounded(
-                user ? Color.rgb(235, 229, 248) : Color.rgb(245, 245, 245), 18));
+        bubble.setTextColor(primaryTextColor());
+        bubble.setBackground(user
+                ? rounded(darkMode ? Color.rgb(70, 53, 112) : Color.rgb(235, 229, 248), 18)
+                : strokedRounded(cardColor(), borderColor(), 18));
         applyMessageDirection(bubble, message);
         group.addView(bubble, smallGap());
 
@@ -870,7 +1106,7 @@ public class MainActivity extends Activity {
         chatMessages.removeAllViews();
         emptyChat = chatText("How can I help?", 24, true);
         emptyChat.setGravity(Gravity.CENTER);
-        emptyChat.setTextColor(Color.rgb(55, 55, 55));
+        emptyChat.setTextColor(primaryTextColor());
         chatMessages.addView(emptyChat, new LinearLayout.LayoutParams(-1, dp(180)));
     }
 
@@ -951,7 +1187,7 @@ public class MainActivity extends Activity {
 
             ImageView emptyIcon = new ImageView(this);
             emptyIcon.setImageResource(R.drawable.ic_history);
-            emptyIcon.setColorFilter(Color.rgb(145, 145, 145));
+            emptyIcon.setColorFilter(secondaryTextColor());
             emptyIcon.setContentDescription("No archived chats");
             LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(56), dp(56));
             iconParams.gravity = Gravity.CENTER_HORIZONTAL;
@@ -964,7 +1200,7 @@ public class MainActivity extends Activity {
 
             TextView emptyDescription = chatText(
                     "Your conversations will appear here after you send a message.", 14, false);
-            emptyDescription.setTextColor(Color.rgb(105, 105, 105));
+            emptyDescription.setTextColor(secondaryTextColor());
             emptyDescription.setGravity(Gravity.CENTER);
             LinearLayout.LayoutParams descriptionParams = new LinearLayout.LayoutParams(-1, -2);
             descriptionParams.topMargin = dp(8);
@@ -1003,7 +1239,7 @@ public class MainActivity extends Activity {
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(8), dp(10), dp(8), dp(10));
-            row.setBackground(rounded(Color.rgb(247, 247, 249), 16));
+            row.setBackground(strokedRounded(cardColor(), borderColor(), 16));
 
             CheckBox checkBox = new CheckBox(this);
             checkBox.setContentDescription("Select " + chat.optString("title"));
@@ -1021,7 +1257,7 @@ public class MainActivity extends Activity {
             labels.setPadding(dp(4), dp(4), dp(8), dp(4));
             TextView chatTitle = chatText(chat.optString("title", "Untitled chat"), 15, true);
             TextView detail = chatText(chat.optString("model"), 11, false);
-            detail.setTextColor(Color.rgb(105, 105, 105));
+            detail.setTextColor(secondaryTextColor());
             labels.addView(chatTitle);
             labels.addView(detail);
             labels.setOnClickListener(view -> openArchivedChat(chat));
@@ -1135,18 +1371,134 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void refreshPrerequisites() {
+    private void refreshSetupStatus() {
+        if (prerequisites == null) return;
+        int generation = setupStatusGeneration.incrementAndGet();
         boolean termux = isInstalled(TermuxBridge.TERMUX_PACKAGE);
         boolean permission = checkSelfPermission(TermuxBridge.RUN_PERMISSION) == PackageManager.PERMISSION_GRANTED;
-        prerequisites.setText(
-                (termux ? "✓" : "✗") + " Termux    "
-                        + (permission ? "✓" : "✗") + " Command permission"
-        );
-        prerequisites.setTextColor(allReady(termux, permission)
-                ? Color.rgb(35, 91, 57) : Color.rgb(70, 62, 83));
-        prerequisites.setBackground(rounded(
-                allReady(termux, permission) ? Color.rgb(224, 244, 231) : Color.rgb(238, 234, 247),
-                18));
+        termuxState = termux ? STATUS_READY : STATUS_ACTION;
+        permissionState = permission ? STATUS_READY : STATUS_ACTION;
+        setReadinessStatus(termuxStatus, termux ? "✓ Installed" : "Install", termuxState);
+        setReadinessStatus(termuxPermissionStatus, permission ? "✓ Granted" : "Grant access",
+                permissionState);
+
+        if (!termux || !permission) {
+            antigravityState = STATUS_ACTION;
+            googleState = STATUS_ACTION;
+            setReadinessStatus(antigravityStatus, "Setup required", STATUS_ACTION);
+            setReadinessStatus(googleStatus, "Setup required", STATUS_ACTION);
+        } else {
+            SharedPreferences commands = getSharedPreferences("command_results", MODE_PRIVATE);
+            int activeId = commands.getInt("active_id", -1);
+            if (activeId >= 0) {
+                String label = commands.getString("active_label", "Setup");
+                antigravityState = STATUS_PENDING;
+                googleState = STATUS_PENDING;
+                setReadinessStatus(antigravityStatus,
+                        "Google sign-in".equals(label) ? "Check after sign-in" : "Working…",
+                        STATUS_PENDING);
+                setReadinessStatus(googleStatus,
+                        "Google sign-in".equals(label) ? "Signing in…" : "Waiting…",
+                        STATUS_PENDING);
+            } else {
+                antigravityState = STATUS_PENDING;
+                googleState = STATUS_PENDING;
+                setReadinessStatus(antigravityStatus, "Checking…", STATUS_PENDING);
+                setReadinessStatus(googleStatus, "Waiting…", STATUS_PENDING);
+                antigravityProvider.checkInstallation(new ChatProvider.Result<Boolean>() {
+                    @Override public void onSuccess(Boolean installed) {
+                        runOnUiThread(() -> {
+                            if (setupStatusGeneration.get() != generation) return;
+                            antigravityState = installed ? STATUS_READY : STATUS_ACTION;
+                            setReadinessStatus(antigravityStatus,
+                                    installed ? "✓ Installed" : "Install", antigravityState);
+                            if (!installed) {
+                                googleState = STATUS_ACTION;
+                                setReadinessStatus(googleStatus, "Setup required", STATUS_ACTION);
+                                updateReadinessSummary();
+                                return;
+                            }
+                            setReadinessStatus(googleStatus, "Checking…", STATUS_PENDING);
+                            checkGoogleAccount(generation);
+                            updateReadinessSummary();
+                        });
+                    }
+
+                    @Override public void onError(String message) {
+                        runOnUiThread(() -> {
+                            if (setupStatusGeneration.get() != generation) return;
+                            antigravityState = STATUS_ACTION;
+                            googleState = STATUS_ACTION;
+                            setReadinessStatus(antigravityStatus, "Could not verify", STATUS_ACTION);
+                            setReadinessStatus(googleStatus, "Could not verify", STATUS_ACTION);
+                            updateReadinessSummary();
+                        });
+                    }
+                });
+            }
+        }
+
+        if (codexLoginPending) {
+            codexState = STATUS_PENDING;
+            setReadinessStatus(codexStatus, "Waiting for sign-in…", STATUS_PENDING);
+        } else {
+            checkCodexAccount(generation);
+        }
+        updateReadinessSummary();
+    }
+
+    private void checkGoogleAccount(int generation) {
+        antigravityProvider.checkReadiness(new ChatProvider.Result<List<ProviderModel>>() {
+            @Override public void onSuccess(List<ProviderModel> models) {
+                runOnUiThread(() -> {
+                    if (setupStatusGeneration.get() != generation) return;
+                    googleState = STATUS_READY;
+                    setReadinessStatus(googleStatus, "✓ Signed in", STATUS_READY);
+                    updateReadinessSummary();
+                });
+            }
+
+            @Override public void onError(String message) {
+                runOnUiThread(() -> {
+                    if (setupStatusGeneration.get() != generation) return;
+                    googleState = STATUS_ACTION;
+                    setReadinessStatus(googleStatus,
+                            message != null && message.contains("sign-in")
+                                    ? "Sign-in required" : "Could not verify",
+                            STATUS_ACTION);
+                    updateReadinessSummary();
+                });
+            }
+        });
+    }
+
+    private void updateReadinessSummary() {
+        int ready = (termuxState == STATUS_READY ? 1 : 0)
+                + (permissionState == STATUS_READY ? 1 : 0)
+                + (antigravityState == STATUS_READY ? 1 : 0)
+                + (googleState == STATUS_READY ? 1 : 0)
+                + (codexState == STATUS_READY ? 1 : 0);
+        boolean checking = termuxState == STATUS_PENDING || permissionState == STATUS_PENDING
+                || antigravityState == STATUS_PENDING || googleState == STATUS_PENDING
+                || codexState == STATUS_PENDING;
+        boolean complete = ready == 5;
+        prerequisites.setText(complete ? "✓ Rava is ready"
+                : ready + " of 5 ready" + (checking ? " — checking…" : ""));
+        prerequisites.setTextColor(complete ? readyTextColor() : primaryTextColor());
+        prerequisites.setBackground(rounded(complete ? readySurfaceColor() : softAccentColor(), 18));
+    }
+
+    private void setReadinessStatus(TextView view, String value, int state) {
+        if (view == null) return;
+        view.setText(value);
+        int foreground = state == STATUS_READY
+                ? readyTextColor()
+                : state == STATUS_PENDING ? secondaryTextColor() : actionTextColor();
+        int background = state == STATUS_READY
+                ? readySurfaceColor()
+                : state == STATUS_PENDING ? softSurfaceColor() : actionSurfaceColor();
+        view.setTextColor(foreground);
+        view.setBackground(rounded(background, 14));
     }
 
     private void renderLastResult() {
@@ -1214,7 +1566,7 @@ public class MainActivity extends Activity {
         TextView view = new TextView(this);
         view.setText(value);
         view.setTextSize(size);
-        view.setTextColor(Color.rgb(32, 30, 34));
+        view.setTextColor(primaryTextColor());
         if (bold) view.setTypeface(view.getTypeface(), android.graphics.Typeface.BOLD);
         return view;
     }
@@ -1223,6 +1575,34 @@ public class MainActivity extends Activity {
         TextView view = text(value, size, false);
         view.setTypeface(chatTypeface, bold ? Typeface.BOLD : Typeface.NORMAL);
         return view;
+    }
+
+    private final class ThemedModelAdapter extends ArrayAdapter<ProviderModel> {
+        ThemedModelAdapter() {
+            super(MainActivity.this, android.R.layout.simple_spinner_item, new ArrayList<>());
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        }
+
+        @Override public View getView(int position, View convertView, ViewGroup parent) {
+            TextView view = (TextView) super.getView(position, convertView, parent);
+            styleModelOption(view, false);
+            return view;
+        }
+
+        @Override public View getDropDownView(int position, View convertView, ViewGroup parent) {
+            TextView view = (TextView) super.getDropDownView(position, convertView, parent);
+            styleModelOption(view, true);
+            return view;
+        }
+
+        private void styleModelOption(TextView view, boolean dropdown) {
+            view.setTextColor(primaryTextColor());
+            view.setTextSize(14);
+            view.setTypeface(chatTypeface);
+            view.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+            view.setPadding(dp(12), dropdown ? dp(12) : 0, dp(12), dropdown ? dp(12) : 0);
+            view.setBackgroundColor(cardColor());
+        }
     }
 
     private ImageButton iconButton(int icon, String description, int color) {
@@ -1250,54 +1630,77 @@ public class MainActivity extends Activity {
 
     private void styleNavigationItem(ImageButton item, boolean selected) {
         item.setSelected(selected);
-        item.setColorFilter(selected ? Color.rgb(103, 80, 164) : Color.rgb(32, 30, 34));
+        item.setColorFilter(selected ? accentColor() : primaryTextColor());
         item.setBackgroundColor(Color.TRANSPARENT);
     }
 
-    private boolean allReady(boolean termux, boolean permission) {
-        return termux && permission;
+    private TextView sectionTitle(String value) {
+        TextView section = text(value, 12, true);
+        section.setTextColor(accentColor());
+        section.setLetterSpacing(0.08f);
+        return section;
     }
 
-    private void addStep(LinearLayout parent, String number, String title, String description,
-                         String action, View.OnClickListener listener) {
+    private LinearLayout setupCard() {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(16), dp(15), dp(16), dp(15));
-        card.setBackground(rounded(Color.WHITE, 20));
-        card.setElevation(dp(2));
+        card.setPadding(dp(14), dp(4), dp(14), dp(4));
+        card.setBackground(rounded(cardColor(), 20));
+        return card;
+    }
 
-        LinearLayout heading = new LinearLayout(this);
-        heading.setOrientation(LinearLayout.HORIZONTAL);
-        heading.setGravity(Gravity.CENTER_VERTICAL);
+    private TextView addSetupRow(LinearLayout parent, String title, String detail,
+            String action, View.OnClickListener listener, boolean divider) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(2), dp(10), dp(2), dp(10));
 
-        TextView numberView = text(number, 13, true);
-        numberView.setTextColor(Color.WHITE);
-        numberView.setGravity(Gravity.CENTER);
-        numberView.setBackground(rounded(Color.rgb(103, 80, 164), 18));
-        heading.addView(numberView, new LinearLayout.LayoutParams(dp(38), dp(38)));
+        LinearLayout labels = new LinearLayout(this);
+        labels.setOrientation(LinearLayout.VERTICAL);
+        TextView titleView = text(title, 15, true);
+        titleView.setTextColor(primaryTextColor());
+        labels.addView(titleView);
+        TextView detailView = text(detail, 11, false);
+        detailView.setTextColor(secondaryTextColor());
+        labels.addView(detailView, smallGap());
+        row.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
 
-        TextView titleView = text(title, 17, true);
-        LinearLayout.LayoutParams titleLayout = new LinearLayout.LayoutParams(0, -2, 1);
-        titleLayout.leftMargin = dp(12);
-        heading.addView(titleView, titleLayout);
-        card.addView(heading);
+        TextView statusView = text("Checking…", 13, true);
+        statusView.setGravity(Gravity.CENTER);
+        statusView.setPadding(dp(10), 0, dp(10), 0);
+        setReadinessStatus(statusView, "Checking…", STATUS_PENDING);
+        row.addView(statusView, new LinearLayout.LayoutParams(-2, dp(34)));
 
-        TextView descriptionView = text(description, 14, false);
-        descriptionView.setTextColor(Color.rgb(92, 88, 99));
-        card.addView(descriptionView, smallGap());
+        if (action != null && listener != null) {
+            TextView actionView = compactAction(action, listener);
+            LinearLayout.LayoutParams actionParams = new LinearLayout.LayoutParams(
+                    dp(72), dp(36));
+            actionParams.leftMargin = dp(8);
+            row.addView(actionView, actionParams);
+        }
+        parent.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        if (divider) {
+            View line = new View(this);
+            line.setBackgroundColor(borderColor());
+            LinearLayout.LayoutParams lineParams = new LinearLayout.LayoutParams(-1, dp(1));
+            lineParams.leftMargin = dp(2);
+            lineParams.rightMargin = dp(2);
+            parent.addView(line, lineParams);
+        }
+        return statusView;
+    }
 
-        Button button = new Button(this);
-        button.setText(action);
-        button.setTextSize(13);
-        button.setTextColor(Color.WHITE);
-        button.setTypeface(button.getTypeface(), Typeface.BOLD);
-        button.setAllCaps(false);
-        button.setOnClickListener(listener);
-        button.setBackground(rounded(Color.rgb(103, 80, 164), 14));
-        LinearLayout.LayoutParams buttonParams = new LinearLayout.LayoutParams(-1, dp(48));
-        buttonParams.topMargin = dp(12);
-        card.addView(button, buttonParams);
-        parent.addView(card, spaced());
+    private TextView compactAction(String label, View.OnClickListener listener) {
+        TextView action = text(label, 13, true);
+        action.setTextColor(accentColor());
+        action.setGravity(Gravity.CENTER);
+        action.setBackground(strokedRounded(softAccentColor(), accentBorderColor(), 12));
+        action.setOnClickListener(listener);
+        action.setClickable(true);
+        action.setFocusable(true);
+        action.setContentDescription(label);
+        return action;
     }
 
     private LinearLayout.LayoutParams spaced() {
@@ -1324,6 +1727,68 @@ public class MainActivity extends Activity {
         drawable.setColor(color);
         drawable.setCornerRadius(dp(radiusDp));
         return drawable;
+    }
+
+    private GradientDrawable strokedRounded(int color, int strokeColor, int radiusDp) {
+        GradientDrawable drawable = rounded(color, radiusDp);
+        drawable.setStroke(dp(1), strokeColor);
+        return drawable;
+    }
+
+    private int screenColor() {
+        return darkMode ? Color.rgb(18, 18, 21) : Color.rgb(248, 248, 250);
+    }
+
+    private int navigationColor() {
+        return darkMode ? Color.rgb(25, 24, 28) : Color.WHITE;
+    }
+
+    private int cardColor() {
+        return darkMode ? Color.rgb(31, 30, 35) : Color.WHITE;
+    }
+
+    private int softSurfaceColor() {
+        return darkMode ? Color.rgb(43, 41, 47) : Color.rgb(240, 240, 244);
+    }
+
+    private int softAccentColor() {
+        return darkMode ? Color.rgb(43, 37, 57) : Color.rgb(248, 246, 252);
+    }
+
+    private int primaryTextColor() {
+        return darkMode ? Color.rgb(243, 240, 247) : Color.rgb(29, 27, 32);
+    }
+
+    private int secondaryTextColor() {
+        return darkMode ? Color.rgb(184, 179, 190) : Color.rgb(102, 98, 108);
+    }
+
+    private int borderColor() {
+        return darkMode ? Color.rgb(63, 60, 68) : Color.rgb(229, 226, 233);
+    }
+
+    private int accentColor() {
+        return darkMode ? Color.rgb(210, 188, 255) : Color.rgb(103, 80, 164);
+    }
+
+    private int accentBorderColor() {
+        return darkMode ? Color.rgb(89, 73, 119) : Color.rgb(215, 207, 232);
+    }
+
+    private int readyTextColor() {
+        return darkMode ? Color.rgb(144, 224, 170) : Color.rgb(35, 91, 57);
+    }
+
+    private int readySurfaceColor() {
+        return darkMode ? Color.rgb(29, 65, 43) : Color.rgb(224, 244, 231);
+    }
+
+    private int actionTextColor() {
+        return darkMode ? Color.rgb(255, 190, 138) : Color.rgb(137, 61, 20);
+    }
+
+    private int actionSurfaceColor() {
+        return darkMode ? Color.rgb(72, 45, 28) : Color.rgb(255, 238, 224);
     }
 
     private int dp(int value) {

@@ -8,8 +8,9 @@ Rava is a personal Android chat engine with two account-backed providers:
   required for this provider; Termux:X11, Chromium automation, copied cookies,
   API keys, and a separate HTTP server are not used.
 
-The app includes model selection, Persian/RTL chat, local conversation history,
-continuation, individual and bulk archive deletion, cancellation, and a
+The app includes a live provider-readiness dashboard, model selection,
+Persian/RTL chat, local conversation history, continuation, individual and bulk
+archive deletion, cancellation, persistent light/dark appearance, and a
 signature-protected Android service for the owner's other apps.
 
 After setup, use only the app named **Rava**. The separate runtime-probe APK is a
@@ -29,10 +30,10 @@ VPN connection.
 
 1. Install the Rava APK. Android must show and complete its normal package
    installation screen; Rava cannot silently install itself.
-2. Open **Setup → Install Termux → Open page**. Install the official Termux APK
+2. Open **Setup → Google · Gemini → Termux → Open**. Install the official Termux APK
    from the Termux GitHub releases page. Do not mix the GitHub and Play Store
    Termux ecosystems.
-3. In Rava, tap **Enable Termux access**. Rava copies this one-time Termux
+3. In the **Command access** row, tap **Enable**. Rava copies this one-time Termux
    setting and opens Termux:
 
    ```sh
@@ -40,23 +41,27 @@ VPN connection.
    ```
 
    Paste it into Termux and press Enter.
-4. Return to Rava and tap **Grant command permission**. Accept Android's
-   `com.termux.permission.RUN_COMMAND` prompt.
-5. Tap **Install Antigravity**. Rava installs exact official Termux packages,
+4. Return to Rava and tap **Enable** again. Accept Android's
+   `com.termux.permission.RUN_COMMAND` prompt. The row changes to **Granted**.
+5. In the **Antigravity CLI** row, tap **Install**. Rava installs exact official Termux packages,
    downloads the pinned Google CLI archive over HTTPS, verifies its published
    size and SHA-512 plus the executable SHA-256, and installs it under Termux's
    private home. The CLI archive is about 54 MB; the compatibility packages use
    roughly 400 MB after installation. Existing matching installations are
    verified and reused.
-6. Tap **Sign in to Google**. A visible Termux session prints Google's official
+6. In the **Google account** row, tap **Sign in**. A visible Termux session prints Google's official
    URL and one-time code. In Termux, use **Long press → More → Select URL** so
    the complete URL is selected, open it, enter the code, and return to Rava.
    Rava never reads or copies the resulting credential files.
-7. In the Codex section, tap **Sign in**. Rava opens the HTTPS URL returned by
+7. In **OpenAI · Codex → ChatGPT account**, tap **Sign in**. Rava opens the HTTPS URL returned by
    `codex-app-server` and displays its one-time code. Complete the official
-   ChatGPT sign-in, return to Rava, and tap **Check Codex**.
-8. Open **Chat** and tap **Reload**. The selector should list both Codex and
+   ChatGPT sign-in and return to Rava. The account row changes to **Signed in**.
+8. Confirm that the Setup summary says **Rava is ready**, then open **Chat** and
+   tap **Reload**. The selector should list both Codex and
    Antigravity models. Pick a model and send a message.
+
+Use **Settings → Dark mode** to switch the complete app between light and dark
+appearance. Rava stores that choice locally and keeps it across restarts.
 
 No command from an old Rava installation is needed. Python, Node.js, Chromium,
 Termux:X11, `chatgpt-web2api`, and the legacy local HTTP service are not part of

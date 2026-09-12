@@ -31,11 +31,22 @@ final class TermuxBridge {
 
     static int run(Context context, String label, String script, boolean background,
             boolean sensitive, Callback callback) {
+        return run(context, label, script, background, sensitive, callback, false);
+    }
+
+    static int runTransient(Context context, String label, String script,
+            Callback callback) {
+        return run(context, label, script, true, false, callback, true);
+    }
+
+    private static int run(Context context, String label, String script, boolean background,
+            boolean sensitive, Callback callback, boolean transientResult) {
         int id = NEXT_ID.incrementAndGet();
         Intent resultIntent = new Intent(context, CommandResultService.class);
         resultIntent.putExtra(CommandResultService.EXTRA_EXECUTION_ID, id);
         resultIntent.putExtra(CommandResultService.EXTRA_LABEL, label);
         resultIntent.putExtra(CommandResultService.EXTRA_SENSITIVE, sensitive);
+        resultIntent.putExtra(CommandResultService.EXTRA_TRANSIENT, transientResult);
         int flags = PendingIntent.FLAG_ONE_SHOT | PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             flags |= PendingIntent.FLAG_MUTABLE;
@@ -52,21 +63,25 @@ final class TermuxBridge {
         intent.putExtra("com.termux.RUN_COMMAND_BACKGROUND", background);
         intent.putExtra("com.termux.RUN_COMMAND_COMMAND_LABEL", label);
         intent.putExtra("com.termux.RUN_COMMAND_PENDING_INTENT", result);
-        context.getSharedPreferences("command_results", Context.MODE_PRIVATE).edit()
-                .putInt("active_id", id)
-                .putString("active_label", label)
-                .putLong("active_started_at", System.currentTimeMillis())
-                .commit();
+        if (!transientResult) {
+            context.getSharedPreferences("command_results", Context.MODE_PRIVATE).edit()
+                    .putInt("active_id", id)
+                    .putString("active_label", label)
+                    .putLong("active_started_at", System.currentTimeMillis())
+                    .commit();
+        }
         if (callback != null) CALLBACKS.put(id, callback);
         try {
             context.startService(intent);
         } catch (RuntimeException exception) {
             CALLBACKS.remove(id);
-            context.getSharedPreferences("command_results", Context.MODE_PRIVATE).edit()
-                    .remove("active_id")
-                    .remove("active_label")
-                    .remove("active_started_at")
-                    .commit();
+            if (!transientResult) {
+                context.getSharedPreferences("command_results", Context.MODE_PRIVATE).edit()
+                        .remove("active_id")
+                        .remove("active_label")
+                        .remove("active_started_at")
+                        .commit();
+            }
             throw exception;
         }
         return id;

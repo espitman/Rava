@@ -23,8 +23,24 @@ final class AntigravityProvider implements ChatProvider {
     }
 
     @Override public void listModels(Result<List<ProviderModel>> result) {
+        listModels(result, false);
+    }
+
+    void checkInstallation(Result<Boolean> result) {
+        String installer = "$HOME/.local/share/rava-antigravity/installer/scripts/"
+                + "install-antigravity-termux.sh";
+        run("Check Antigravity installation", "set -eu\ntest -x \"" + installer
+                + "\"\ntimeout 30s \"" + installer + "\" verify\n", false, true,
+                command -> result.onSuccess(command.succeeded()));
+    }
+
+    void checkReadiness(Result<List<ProviderModel>> result) {
+        listModels(result, true);
+    }
+
+    private void listModels(Result<List<ProviderModel>> result, boolean transientResult) {
         run("Antigravity models", "set -eu\ntimeout 90s \"" + RUNNER
-                + "\" models\n", false,
+                + "\" models\n", false, transientResult,
                 command -> {
                     if (!command.succeeded()) {
                         result.onError(failure(command));
@@ -66,7 +82,7 @@ final class AntigravityProvider implements ChatProvider {
                 .append("\" \"${args[@]}\" &\n")
                 .append("child=$!\nprintf '%s\\n' \"$child\" > \"$pid_file\"\n")
                 .append("chmod 600 \"$pid_file\"\nwait \"$child\"\n");
-        run("Antigravity chat", script.toString(), true, command -> {
+        run("Antigravity chat", script.toString(), true, false, command -> {
             if (generation.get() != requestGeneration) return;
             if (!command.succeeded()) {
                 result.onError(failure(command));
@@ -83,11 +99,19 @@ final class AntigravityProvider implements ChatProvider {
 
     private void run(String label, String script, boolean sensitive,
             TermuxBridge.Callback callback) {
+        run(label, script, sensitive, false, callback);
+    }
+
+    private void run(String label, String script, boolean sensitive, boolean transientResult,
+            TermuxBridge.Callback callback) {
         try {
-            int executionId = TermuxBridge.run(context, label, script, true, sensitive, result -> {
+            TermuxBridge.Callback wrapped = result -> {
                 activeExecution.compareAndSet(result.executionId, -1);
                 callback.onResult(result);
-            });
+            };
+            int executionId = transientResult
+                    ? TermuxBridge.runTransient(context, label, script, wrapped)
+                    : TermuxBridge.run(context, label, script, true, sensitive, wrapped);
             activeExecution.set(executionId);
         } catch (Exception error) {
             callback.onResult(new TermuxCommandResult(-1, -1, -1, "", "", error.getMessage()));

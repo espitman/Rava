@@ -5,11 +5,11 @@ Date: 2026-09-12 (Asia/Tehran)
 ## Delivered artifacts
 
 - Application ID: `ir.rava.installer`
-- Version: `1.0.0` (`versionCode 13`)
+- Version: `1.0.1` (`versionCode 14`)
 - Device target: Android 8.0+ on `arm64-v8a`
 - Debug APK: `android-installer/app/build/outputs/apk/debug/app-debug.apk`
-  - Size: 78,041,373 bytes
-  - SHA-256: `22e8c8185bc4c9fac25d780ddd0d444e9c13cf230c9edbc41be66302ba53ccd6`
+  - Size: 78,049,423 bytes
+  - SHA-256: `024d0133702bc201ce423670b8ae2145fb2a270a3b0e4e3422a226c0fe0fad38`
 - Client AAR: `android-installer/rava-client/build/outputs/aar/rava-client-release.aar`
   - Size: 4,453 bytes
   - SHA-256: `47c984bf1a9bca4204e22462050a5b198f0ce869904b28832e9a25d3a8aebb96`
@@ -40,6 +40,13 @@ manual test did not capture a reliable start/end timestamp pair.
   :rava-client:assembleRelease` passed: 116 actionable tasks.
 - Final APK installed as an upgrade while preserving the local archive and both
   provider logins.
+- The Setup dashboard correctly reported all five live readiness checks on the
+  device: Termux installed, command access granted, Antigravity installed,
+  Google signed in, and ChatGPT signed in.
+- The redesigned Setup screen keeps each status beside its related action. The
+  Settings tab switches and persists the app-wide light/dark appearance, and
+  the selected model plus the complete model dropdown remain readable in dark
+  mode.
 - Rava loaded 20 confirmed models: six Codex models and fourteen Antigravity
   models. A provider failure does not hide the other provider's models.
 - `codex/gpt-5.6-sol` returned `CODEX_OK`, then after force-stop/restart resumed

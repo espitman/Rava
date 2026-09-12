@@ -9,6 +9,7 @@ public class CommandResultService extends IntentService {
     static final String EXTRA_EXECUTION_ID = "execution_id";
     static final String EXTRA_LABEL = "label";
     static final String EXTRA_SENSITIVE = "sensitive";
+    static final String EXTRA_TRANSIENT = "transient";
     static final String ACTION_RESULT = "ir.rava.installer.COMMAND_RESULT";
 
     public CommandResultService() {
@@ -27,9 +28,11 @@ public class CommandResultService extends IntentService {
         String stderr = result == null ? "" : result.getString("stderr", "");
         String errorMessage = result == null ? "Termux returned no result." : result.getString("errmsg", "");
         boolean sensitive = intent.getBooleanExtra(EXTRA_SENSITIVE, false);
+        boolean transientResult = intent.getBooleanExtra(EXTRA_TRANSIENT, false);
         TermuxCommandResult commandResult = new TermuxCommandResult(executionId, exitCode,
                 internalError, stdout, stderr, errorMessage);
         boolean delivered = TermuxBridge.dispatch(commandResult);
+        if (transientResult) return;
 
         SharedPreferences preferences = getSharedPreferences("command_results", MODE_PRIVATE);
         preferences.edit()
