@@ -267,7 +267,7 @@ public class MainActivity extends Activity {
         ImageButton newChat = iconButton(R.drawable.ic_new_chat, "New chat", Color.rgb(32, 30, 34));
         newChat.setOnClickListener(view -> resetChat());
         ImageButton archive = iconButton(
-                android.R.drawable.ic_menu_recent_history, "Chat archive", Color.rgb(32, 30, 34));
+                R.drawable.ic_history, "Chat archive", Color.rgb(32, 30, 34));
         archive.setOnClickListener(view -> showChatArchive());
         header.addView(archive, new LinearLayout.LayoutParams(dp(48), dp(48)));
         header.addView(newChat, new LinearLayout.LayoutParams(dp(48), dp(48)));
@@ -854,14 +854,46 @@ public class MainActivity extends Activity {
         ((InputMethodManager) getSystemService(INPUT_METHOD_SERVICE))
                 .hideSoftInputFromWindow(chatInput.getWindowToken(), 0);
         JSONArray chats = readChatArchive();
-        if (chats.length() == 0) {
-            Toast.makeText(this, "No archived chats yet.", Toast.LENGTH_SHORT).show();
-            return;
-        }
 
         LinearLayout content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
         content.setPadding(dp(14), dp(4), dp(14), dp(8));
+
+        if (chats.length() == 0) {
+            LinearLayout emptyState = new LinearLayout(this);
+            emptyState.setOrientation(LinearLayout.VERTICAL);
+            emptyState.setGravity(Gravity.CENTER);
+            emptyState.setPadding(dp(24), dp(32), dp(24), dp(32));
+
+            ImageView emptyIcon = new ImageView(this);
+            emptyIcon.setImageResource(R.drawable.ic_history);
+            emptyIcon.setColorFilter(Color.rgb(145, 145, 145));
+            emptyIcon.setContentDescription("No archived chats");
+            LinearLayout.LayoutParams iconParams = new LinearLayout.LayoutParams(dp(48), dp(48));
+            iconParams.gravity = Gravity.CENTER_HORIZONTAL;
+            iconParams.bottomMargin = dp(18);
+            emptyState.addView(emptyIcon, iconParams);
+
+            TextView emptyTitle = chatText("No chats yet", 18, true);
+            emptyTitle.setGravity(Gravity.CENTER);
+            emptyState.addView(emptyTitle, new LinearLayout.LayoutParams(-1, -2));
+
+            TextView emptyDescription = chatText(
+                    "Your conversations will appear here after you send a message.", 13, false);
+            emptyDescription.setTextColor(Color.rgb(105, 105, 105));
+            emptyDescription.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams descriptionParams = new LinearLayout.LayoutParams(-1, -2);
+            descriptionParams.topMargin = dp(8);
+            emptyState.addView(emptyDescription, descriptionParams);
+            content.addView(emptyState, new LinearLayout.LayoutParams(-1, dp(260)));
+
+            new AlertDialog.Builder(this)
+                    .setTitle("Chat archive")
+                    .setView(content)
+                    .setNegativeButton("Close", null)
+                    .show();
+            return;
+        }
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
